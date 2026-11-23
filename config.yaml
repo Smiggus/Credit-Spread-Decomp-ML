@@ -1,0 +1,14 @@
+# config.yaml  [Project settings, safe to commit]
+# Machine-specific paths and connection details go in .env, never here.
+
+project:
+  name: credit-spread-decomp
+
+spark:
+  app_name: credit-spread-decomp
+  timezone: UTC
+
+# Sample window of the ML II panel, used by stage (a).
+panel:
+  start: "2024-01"
+  end: "2026-03"
