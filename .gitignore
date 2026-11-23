@@ -1,0 +1,43 @@
+# Licensed data never goes in this repo (TRACE, CRSP, Compustat, Bloomberg).
+data/
+*.parquet
+*.csv
+*.xlsx
+*.feather
+*.pkl
+*.joblib
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Model outputs can embed training data
+models/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Spark
+spark-warehouse/
+metastore_db/
+derby.log
+checkpoints/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
