@@ -14,7 +14,7 @@ import pandas as pd
 
 from src.config import REPO_ROOT
 from src.panel import input_groups, load_panel
-from src.shap_split import fit_spread_model, group_contributions, group_shares
+from src.shap_split import drop_group_mae, fit_spread_model, group_contributions, group_shares
 
 logger = logging.getLogger(__name__)
 
@@ -76,15 +76,16 @@ def plot_monthly_shares(table: pd.DataFrame, path) -> None:
 
 
 def main() -> None:
-    """Fit, split and write ``reports/a_group_shares.csv`` and ``reports/figures/a_group_shares.png``."""
+    """Write the shares table, the chart and the drop-group check to ``reports/``."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     df = load_panel(["train", "valid"])
-    model = fit_spread_model(df[df["partition"] == "train"])
-    table = shares_table(group_contributions(model, df), df)
+    train, valid = df[df["partition"] == "train"], df[df["partition"] == "valid"]
+    table = shares_table(group_contributions(fit_spread_model(train), df), df)
     (REPORTS / "figures").mkdir(parents=True, exist_ok=True)
     table.to_csv(REPORTS / "a_group_shares.csv", index=False, float_format="%.2f")
     plot_monthly_shares(table, REPORTS / "figures" / "a_group_shares.png")
-    logger.info("Wrote %d rows of totals and the chart to %s", len(table), REPORTS)
+    drop_group_mae(train, valid).to_csv(REPORTS / "a_drop_group.csv", index=False, float_format="%.2f")
+    logger.info("Wrote the shares table, the chart and the drop-group check to %s", REPORTS)
 
 
 if __name__ == "__main__":
