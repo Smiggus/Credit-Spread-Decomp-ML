@@ -35,7 +35,6 @@ def manifest(month, rows, columns=("cusip_id", "rptd_pr", "trc_st")):
     return {"table": "trace_enhanced", "month": month, "rows": rows, "columns": [{"name": c} for c in columns]}
 
 
-@pytest.mark.skip(reason="waits for #9")
 def test_check_accepts_a_complete_delivery():
     from src.trace import check_delivery
 
@@ -43,7 +42,6 @@ def test_check_accepts_a_complete_delivery():
     check_delivery(manifests, {"2025-03": 2, "2025-04": 2}, ["2025-03", "2025-04"], REQUIRED)
 
 
-@pytest.mark.skip(reason="waits for #9")
 def test_check_names_a_missing_month():
     from src.trace import check_delivery
 
@@ -51,7 +49,6 @@ def test_check_names_a_missing_month():
         check_delivery({"2025-03": manifest("2025-03", 2)}, {"2025-03": 2}, ["2025-03", "2025-04"], REQUIRED)
 
 
-@pytest.mark.skip(reason="waits for #9")
 def test_check_names_a_month_whose_rows_differ_from_its_manifest():
     from src.trace import check_delivery
 
@@ -59,7 +56,6 @@ def test_check_names_a_month_whose_rows_differ_from_its_manifest():
         check_delivery({"2025-03": manifest("2025-03", 3)}, {"2025-03": 2}, ["2025-03"], REQUIRED)
 
 
-@pytest.mark.skip(reason="waits for #9")
 def test_check_names_a_missing_column():
     from src.trace import check_delivery
 
@@ -68,7 +64,14 @@ def test_check_names_a_missing_column():
         check_delivery(month, {"2025-03": 2}, ["2025-03"], REQUIRED)
 
 
-@pytest.mark.skip(reason="waits for #9")
+def test_check_names_the_month_that_lacks_a_column():
+    from src.trace import check_delivery
+
+    manifests = {"2025-03": manifest("2025-03", 2), "2025-04": manifest("2025-04", 2, columns=("cusip_id",))}
+    with pytest.raises(ValueError, match="2025-04"):
+        check_delivery(manifests, {"2025-03": 2, "2025-04": 2}, ["2025-03", "2025-04"], REQUIRED)
+
+
 def test_reader_refuses_a_local_path_inside_the_repo():
     from src.config import REPO_ROOT
     from src.trace import read_trades
