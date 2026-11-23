@@ -2,6 +2,7 @@
 write the shares table and the chart. Totals only.
 
 Run from the repo root: python -m scripts.a_shap_split
+About 8 minutes on a laptop, almost all of it the SHAP values for about 148,000 rows.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ def shares_table(contribs: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame:
 
 
 def plot_monthly_shares(table: pd.DataFrame, path) -> None:
-    """Stacked monthly shares, one panel for IG and one for HY, with the valid months shaded."""
+    """Stacked monthly shares, one panel for IG and one for HY, with a line where the valid months start."""
     monthly = table[table["cut"] == "grade_month"]
     groups = list(input_groups())
     valid_start = monthly.loc[monthly["partition"] == "valid", "snapshot_date"].min()
@@ -49,10 +50,11 @@ def plot_monthly_shares(table: pd.DataFrame, path) -> None:
         ax.set_facecolor(SURFACE)
         ax.stackplot(wide.index, wide.T.to_numpy(), colors=COLOURS, edgecolor=SURFACE, linewidth=1.2)
         ax.axvline(valid_start, color=INK, linestyle="--", linewidth=1)
-        ax.text(valid_start, 101, " valid months", color=MUTED, fontsize=8, va="bottom")
-        ax.set_title(grade, color=INK, loc="left", fontsize=11)
+        ax.text(valid_start, 101, "train (in-sample) ", color=MUTED, fontsize=8, va="bottom", ha="right")
+        ax.text(valid_start, 101, " valid", color=MUTED, fontsize=8, va="bottom")
+        ax.set_title(grade, color=INK, loc="left", fontsize=11, pad=16)
         ax.set_ylim(0, 100)
-        ax.set_ylabel("Share of the spread split (%)" if grade == "IG" else "", color=MUTED)
+        ax.set_ylabel("Share of mean absolute contribution (%)" if grade == "IG" else "", color=MUTED)
         ax.tick_params(colors=MUTED, labelsize=8)
         ax.grid(axis="y", color=MUTED, alpha=0.15, linewidth=0.6)
         for side in ("top", "right"):
@@ -61,9 +63,14 @@ def plot_monthly_shares(table: pd.DataFrame, path) -> None:
             ax.spines[side].set_color(MUTED)
     labels = [name.replace("_", " ").capitalize() for name in groups]
     handles = [plt.Rectangle((0, 0), 1, 1, color=c) for c in COLOURS]
-    fig.legend(handles, labels, loc="lower center", ncol=5, frameon=False, fontsize=9, labelcolor=INK)
-    fig.suptitle("Share of each input group in the predicted spread, by month", color=INK, x=0.06, ha="left")
-    fig.tight_layout(rect=(0, 0.08, 1, 0.95))
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0.04), ncol=5, frameon=False, fontsize=9,
+               labelcolor=INK)
+    fig.suptitle(
+        "Each input group's share of the mean absolute SHAP contribution, by month (base value excluded)",
+        color=INK, x=0.06, ha="left",
+    )
+    fig.text(0.06, 0.01, "June 2025 is the gap month between train and valid and has no data.", color=MUTED, fontsize=8)
+    fig.tight_layout(rect=(0, 0.13, 1, 0.95))
     fig.savefig(path, dpi=150, facecolor=SURFACE)
     plt.close(fig)
 

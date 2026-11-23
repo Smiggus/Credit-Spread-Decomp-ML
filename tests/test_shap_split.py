@@ -120,13 +120,26 @@ def test_shares_on_known_numbers():
     assert table.loc[("HY", "market"), "share_pct"] == pytest.approx(50)
 
 
-def test_shares_table_has_no_identifiers():
-    from src.shap_split import fit_spread_model, group_contributions, group_shares
+def test_written_table_has_no_identifiers_and_covers_every_row():
+    from scripts.a_shap_split import shares_table
+    from src.shap_split import fit_spread_model, group_contributions
 
     train, valid = split(driven_panel(LIQUIDITY))
-    contribs = group_contributions(fit_spread_model(train), valid)
-    table = group_shares(contribs, valid, by=["snapshot_date"])
-    assert not {"cusip_id", "issuer_ticker"} & set(table.columns)
+    valid = valid.assign(maturity_bucket=valid["maturity_bucket"].where(valid.index % 7 != 0))  # some missing
+    table = shares_table(group_contributions(fit_spread_model(train), valid), valid)
+    assert not {"cusip_id", "issuer_ticker", "issuer_name"} & set(table.columns)
+    assert table["maturity_bucket"].isna().any()  # rows with a missing bucket form their own cut
+    np.testing.assert_allclose(table.groupby(["cut", "grade_bucket", "maturity_bucket", "snapshot_date"],
+                                             dropna=False)["share_pct"].sum(), 100, atol=1e-6)
+
+
+def test_misaligned_rows_are_refused():
+    from src.shap_split import group_shares
+
+    contribs = pd.DataFrame({"liquidity": [1.0, 2.0], "base": [100.0, 100.0]})
+    df = pd.DataFrame({"grade_bucket": ["IG", "HY"]}, index=[5, 6])
+    with pytest.raises(ValueError, match="same index"):
+        group_shares(contribs, df, by=["grade_bucket"])
 
 
 @pytest.mark.skip(reason="waits for #7")
