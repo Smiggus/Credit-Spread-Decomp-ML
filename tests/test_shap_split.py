@@ -44,10 +44,11 @@ def test_prediction_does_not_depend_on_which_categories_a_frame_holds():
     # Make sector worth 100 bp, so a category mix-up would move the prediction.
     train = train.assign(spread_bps=train["spread_bps"] + 100 * (train["sector"] == "Utilities"))
     model = fit_spread_model(train)
+    full = predict_spread(model, valid)
     is_utility = (valid["sector"] == "Utilities").to_numpy()
+    assert full[is_utility].mean() - full[~is_utility].mean() > 50  # the model does use sector
     # Alone, the frame's sector categories are ["Utilities"]; inside valid they are ["Energy", "Utilities"].
-    alone = predict_spread(model, valid[is_utility])
-    np.testing.assert_allclose(alone, predict_spread(model, valid)[is_utility])
+    np.testing.assert_allclose(predict_spread(model, valid[is_utility]), full[is_utility])
 
 
 def test_model_inputs_types():
@@ -57,6 +58,16 @@ def test_model_inputs_types():
     assert isinstance(X["sector"].dtype, pd.CategoricalDtype)
     assert X["is_144a"].dtype == float
     assert X.shape[1] == 33
+
+
+def test_true_false_column_with_a_missing_value_still_fits():
+    from src.shap_split import fit_spread_model, model_inputs
+
+    train, _ = split(driven_panel(["coupon_pct"]))
+    train = train.astype({"is_144a": object})
+    train.iloc[0, train.columns.get_loc("is_144a")] = None
+    assert model_inputs(train)["is_144a"].isna().sum() == 1
+    fit_spread_model(train)
 
 
 @pytest.mark.skip(reason="waits for #5")

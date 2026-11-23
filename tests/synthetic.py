@@ -16,6 +16,7 @@ CATEGORIES = {
 def synthetic_panel(n: int = 12, seed: int = 0) -> pd.DataFrame:
     """A panel with the configured columns: one snapshot per row, monthly from Jan 2024.
 
+    Every input is drawn on its own, so no two inputs carry the same information.
     Partitions follow the row order: the first half train, then gap, valid and test.
     """
     rng = np.random.default_rng(seed)
@@ -32,10 +33,9 @@ def synthetic_panel(n: int = 12, seed: int = 0) -> pd.DataFrame:
     }
     for col in feature_columns():
         if col in CATEGORIES:
-            values = CATEGORIES[col]
-            data[col] = [values[i % len(values)] for i in range(n)]
+            data[col] = rng.choice(CATEGORIES[col], n)
         elif col.startswith(("is_", "has_")) or col == "sector_is_pit":
-            data[col] = [bool(i % 2) for i in range(n)]
+            data[col] = rng.random(n) < 0.5
         else:
             data[col] = rng.normal(size=n)
     return pd.DataFrame(data)
