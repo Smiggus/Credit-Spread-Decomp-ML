@@ -27,62 +27,54 @@ def measures_of(spark, rows, months=None):
     return table.set_index("cusip_id").to_dict("index")
 
 
-def write_delivery(folder, months, rows_per_month=2, manifest_rows=None):
-    """A made-up TRACE delivery under the contract's layout, with one manifest per month."""
-    for month in months:
-        year, mm = month.split("-")
-        part = folder / "trace_enhanced" / f"year={year}" / f"month={mm}"
-        part.mkdir(parents=True)
-        frame = pd.DataFrame([T.trade("B1", T.DAY, i, 100.0, 1e6) for i in range(rows_per_month)])
-        frame.to_parquet(part / "part-0.parquet")
-        rows = rows_per_month if manifest_rows is None else manifest_rows
-        (part / "_manifest.json").write_text(f'{{"table": "trace_enhanced", "month": "{month}", "rows": {rows}}}')
+REQUIRED = ["cusip_id", "rptd_pr"]
 
 
-@pytest.fixture(name="outside_repo")
-def repo_elsewhere(monkeypatch, tmp_path):
-    """pytest's tmp_path sits inside the repo, so point the repo guard at a folder beside it."""
-    import src.config
-
-    monkeypatch.setattr(src.config, "REPO_ROOT", tmp_path / "repo")
-    return tmp_path
+def manifest(month, rows, columns=("cusip_id", "rptd_pr", "trc_st")):
+    """A month's manifest as the data platform writes it (only the fields the check reads)."""
+    return {"table": "trace_enhanced", "month": month, "rows": rows, "columns": [{"name": c} for c in columns]}
 
 
 @pytest.mark.skip(reason="waits for #9")
-def test_reader_refuses_a_local_path_inside_the_repo(monkeypatch, tmp_path):
-    import src.config
+def test_check_accepts_a_complete_delivery():
     from src.trace import check_delivery
 
-    write_delivery(tmp_path, ["2025-03"])
-    monkeypatch.setattr(src.config, "REPO_ROOT", tmp_path)
-    with pytest.raises(ValueError, match="inside the repo"):
-        check_delivery(str(tmp_path), "trace_enhanced", ["2025-03"])
+    manifests = {m: manifest(m, 2) for m in ("2025-03", "2025-04")}
+    check_delivery(manifests, {"2025-03": 2, "2025-04": 2}, ["2025-03", "2025-04"], REQUIRED)
 
 
 @pytest.mark.skip(reason="waits for #9")
-def test_reader_accepts_a_complete_delivery(outside_repo):
+def test_check_names_a_missing_month():
     from src.trace import check_delivery
 
-    write_delivery(outside_repo, ["2025-03", "2025-04"])
-    check_delivery(str(outside_repo), "trace_enhanced", ["2025-03", "2025-04"])
-
-
-@pytest.mark.skip(reason="waits for #9")
-def test_reader_names_a_missing_month(outside_repo):
-    from src.trace import check_delivery
-
-    write_delivery(outside_repo, ["2025-03"])
     with pytest.raises(ValueError, match="2025-04"):
-        check_delivery(str(outside_repo), "trace_enhanced", ["2025-03", "2025-04"])
+        check_delivery({"2025-03": manifest("2025-03", 2)}, {"2025-03": 2}, ["2025-03", "2025-04"], REQUIRED)
 
 
 @pytest.mark.skip(reason="waits for #9")
-def test_reader_names_a_month_whose_rows_differ_from_its_manifest(outside_repo):
+def test_check_names_a_month_whose_rows_differ_from_its_manifest():
     from src.trace import check_delivery
 
-    write_delivery(outside_repo, ["2025-03"], rows_per_month=2, manifest_rows=3)
     with pytest.raises(ValueError, match="2025-03"):
-        check_delivery(str(outside_repo), "trace_enhanced", ["2025-03"])
+        check_delivery({"2025-03": manifest("2025-03", 3)}, {"2025-03": 2}, ["2025-03"], REQUIRED)
+
+
+@pytest.mark.skip(reason="waits for #9")
+def test_check_names_a_missing_column():
+    from src.trace import check_delivery
+
+    month = {"2025-03": manifest("2025-03", 2, columns=("cusip_id",))}
+    with pytest.raises(ValueError, match="rptd_pr"):
+        check_delivery(month, {"2025-03": 2}, ["2025-03"], REQUIRED)
+
+
+@pytest.mark.skip(reason="waits for #9")
+def test_reader_refuses_a_local_path_inside_the_repo():
+    from src.config import REPO_ROOT
+    from src.trace import read_trades
+
+    with pytest.raises(ValueError, match="inside the repo"):
+        read_trades(None, str(REPO_ROOT / "data" / "trace"), "trace_enhanced", ["2025-03"])
 
 
 @pytest.mark.skip(reason="waits for #10")
