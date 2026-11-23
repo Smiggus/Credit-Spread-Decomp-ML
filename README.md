@@ -14,7 +14,7 @@ Each stage is a [milestone](https://github.com/Smiggus/Credit-Spread-Decomp-ML/m
 
 | Step | Stage | What | Status |
 |---|---|---|---|
-| 1 | (a) | SHAP split of a gradient boosting spread model by input group | Not started |
+| 1 | (a) | SHAP split of a gradient boosting spread model by input group | Done |
 | 2 | (b) | Liquidity measures from trade-level TRACE in Spark | Not started |
 | 3 | (c) | Merton model and a ladder of default classifiers, from Naive Bayes and logit to trees, boosting and an MLP | Not started |
 | 3b | (c) | Survival, sequence and ensemble default models | Not started |
@@ -26,6 +26,33 @@ Each stage is a [milestone](https://github.com/Smiggus/Credit-Spread-Decomp-ML/m
 | 9 | (g) | Dealer network, if dealer-level TRACE data ever becomes available | Off |
 
 Each stage gets a short results section here when it is done.
+
+## Results
+
+### Stage a: what the spread model uses
+
+An XGBoost model of the spread (500 trees, depth 10), trained on January 2024 to May 2025 and scored on July to October 2025, misses by 15.3 bp in IG and 50.3 bp in HY on average. Its SHAP values split each predicted spread into the five input groups. The split explains the model, not the market: it says which inputs the model relies on, and correlated inputs can trade credit between groups. Spec: [`docs/specs/a_shap_split.md`](docs/specs/a_shap_split.md).
+
+![Each input group's share of the mean absolute SHAP contribution, by month](reports/figures/a_group_shares.png)
+
+Share of the mean absolute contribution on the valid months, and the rise in valid error when the group is left out and the model refit:
+
+| Input group | IG share | IG error rise | HY share | HY error rise |
+|---|---|---|---|---|
+| Bond terms (grade, maturity, coupon, seniority) | 40.5% | +6.5 bp | 51.5% | +5.8 bp |
+| Stock and balance sheet | 33.1% | +1.7 bp | 29.6% | +10.2 bp |
+| Company (sector, size of the bond program) | 11.8% | -0.1 bp | 9.2% | +4.0 bp |
+| Market (Treasury curve, index spreads, VIX) | 7.7% | +2.1 bp | 3.7% | +3.7 bp |
+| Liquidity (trade counts and volume) | 6.9% | -0.2 bp | 6.1% | +0.4 bp |
+
+What this shows:
+
+- **Bond terms carry the largest share**, about two fifths of the split in IG and half in HY. Leaving them out also removes the IG or HY grade itself, which is why IG error rises most.
+- **In HY, the company's stock and balance sheet matter most for accuracy.** Leaving that group out costs 10.2 bp, more than leaving out bond terms (5.8 bp). The model can recover much of the rating from other inputs, but not the stock's volatility, leverage and distance to default. That is default risk, priced from equity.
+- **The market share moves with the market.** It is 2.5% of the IG split in March 2024 and 24.1% in April 2025, the month of the tariff sell-off. HY shows the same peak at 10.5%.
+- **The three simple liquidity inputs add almost nothing.** About 6% of the split, and leaving them out does not raise error (the small IG gains from leaving out liquidity or company are noise). Stage b replaces them with proper liquidity measures from trade-level TRACE, to test whether liquidity is really this small or only measured badly.
+
+Tables: [`reports/a_group_shares.csv`](reports/a_group_shares.csv) (by grade, maturity and month, train months marked in-sample) and [`reports/a_drop_group.csv`](reports/a_drop_group.csv). Reproduce with `python -m scripts.a_shap_split` (about 8.5 minutes).
 
 ## Data
 
