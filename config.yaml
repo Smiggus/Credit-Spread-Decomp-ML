@@ -1,0 +1,38 @@
+# config.yaml  [Project settings, safe to commit]
+# Machine-specific paths and connection details go in .env, never here.
+# A setting is added here when a stage first reads it.
+
+spark:
+  app_name: credit-spread-decomp
+  timezone: UTC
+
+# Stage (a): XGBoost on the raw spread, with the ML II final model's settings.
+spread_model:
+  rounds: 500
+  params:
+    max_depth: 10
+    eta: 0.03
+    subsample: 0.8
+    colsample_bytree: 0.7
+    tree_method: hist
+    seed: 42
+
+# The ML II bond-month panel (PANEL_PATH in .env), used from stage (a) on.
+panel:
+  # manifest.json sits next to the parquet file and holds its sha256 and row count.
+  manifest_name: manifest.json
+  id_columns: [snapshot_date, cusip_id, issuer_ticker, partition]
+  target: spread_bps
+  stratum: grade_bucket            # IG or HY
+  # Partitions loaded by default. The test months stay closed until the pricer (stage f),
+  # as in ML II, so the decomposition is built without them.
+  default_partitions: [train, gap, valid]
+  # The five input groups: the unit of the SHAP split in stage (a). 33 inputs in all.
+  input_groups:
+    bond_terms: [years_to_maturity, maturity_bucket, coupon_pct, grade_bucket, is_144a, debt_type,
+                 is_subordinated]
+    liquidity: [n_trades, log_par_volume, has_inst_trade, trade_days_in_month, log_par_volume_month]
+    company: [n_bonds_issuer, issuer_log_par_volume_month, sector, sector_is_pit]
+    stock_and_balance_sheet: [vol_20d, vol_60d, vol_252d, ret_252d, mom_12_1, beta_252d, log_market_cap,
+                              total_debt, leverage, naive_dd]
+    market: [ust_2y_pct, ust_10y_pct, slope_2s10s_bps, hy_oas_bps, bbb_oas_bps, vix, sofr_pct]

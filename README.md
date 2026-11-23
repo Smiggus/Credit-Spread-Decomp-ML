@@ -10,41 +10,89 @@ The spread is the bond's yield minus the yield of the US Treasury with the same 
 
 ## Stages
 
-| Stage | What | Status |
-|---|---|---|
-| (a) | SHAP split of a gradient boosting spread model by input group | Not started |
-| (b) | Liquidity measures from trade-level TRACE in Spark | Not started |
-| (c) | Merton model and a ladder of default classifiers (Naive Bayes, logit, trees, boosting, neural networks, survival and sequence models), then ML on the residual spread | Not started |
-| (d) | Company network in Spark GraphFrames: customer and supplier links, ratings and contagion | Not started |
-| (e) | CDS as the default part, bond spread minus CDS as the rest | Not started |
-| (f) | Bond pricer: Treasury curve plus the predicted spread | Not started |
-| (h) | 10-K and 10-Q parsing from SEC EDGAR: subsidiaries, default warnings, debt maturities, text tone | Not started |
-| (i) | LLM extraction from filings, checked against hand labels, and an explanation layer on the pricer | Not started |
+Each stage is a [milestone](https://github.com/Smiggus/Credit-Spread-Decomp-ML/milestones), and each task in it is an issue. Stages run in this order:
+
+| Step | Stage | What | Status |
+|---|---|---|---|
+| 1 | (a) | SHAP split of a gradient boosting spread model by input group | Done |
+| 2 | (b) | Liquidity measures from trade-level TRACE in Spark | Not started |
+| 3 | (c) | Merton model and a ladder of default classifiers, from Naive Bayes and logit to trees, boosting and an MLP | Not started |
+| 3b | (c) | Survival, sequence and ensemble default models | Not started |
+| 4 | (h) | 10-K and 10-Q parsing from SEC EDGAR: subsidiaries, default warnings, debt maturities, text tone | Not started |
+| 5 | (d) | Company network in Spark GraphFrames: customer, supplier and parent links, ratings and contagion | Not started |
+| 6 | (f) | Bond pricer: Treasury curve plus the predicted spread | Not started |
+| 7 | (e) | CDS as the default part, bond spread minus CDS as the rest | Not started |
+| 8 | (i) | LLM extraction from filings, checked against hand labels, and an explanation layer on the pricer | Not started |
+| 9 | (g) | Dealer network, if dealer-level TRACE data ever becomes available | Off |
 
 Each stage gets a short results section here when it is done.
 
+## Results
+
+### Stage a: what the spread model uses
+
+An XGBoost model of the spread (500 trees, depth 10), trained on January 2024 to May 2025 and scored on July to October 2025, misses by 15.3 bp in IG and 50.3 bp in HY on average. Its SHAP values split each predicted spread into the five input groups. The split describes what the model relies on. Correlated inputs can trade credit between groups, so it is a description of the model and says nothing about cause. Spec: [`docs/specs/a_shap_split.md`](docs/specs/a_shap_split.md).
+
+![Each input group's share of the mean absolute SHAP contribution, by month](reports/figures/a_group_shares.png)
+
+Share of the mean absolute contribution on the valid months, and the rise in valid error when the group is left out and the model refit:
+
+| Input group | IG share | IG error rise | HY share | HY error rise |
+|---|---|---|---|---|
+| Bond terms (grade, maturity, coupon, seniority) | 40.5% | +6.5 bp | 51.5% | +5.8 bp |
+| Stock and balance sheet | 33.1% | +1.7 bp | 29.6% | +10.2 bp |
+| Company (sector, size of the bond program) | 11.8% | -0.1 bp | 9.2% | +4.0 bp |
+| Market (Treasury curve, index spreads, VIX) | 7.7% | +2.1 bp | 3.7% | +3.7 bp |
+| Liquidity (trade counts and volume) | 6.9% | -0.2 bp | 6.1% | +0.4 bp |
+
+What this shows:
+
+- **Bond terms carry the largest share**, about two fifths of the split in IG and half in HY. Leaving the group out raises IG error by 6.5 bp, 43% of the full model's 15.3 bp. The group includes the IG or HY flag; the flag's own effect was not tested separately.
+- **In HY, the stock and balance sheet group matters most for accuracy.** Leaving it out raises HY error by 10.2 bp, more than leaving out bond terms (5.8 bp). The group's ten inputs were dropped together, so this does not say which of them matter. Stage c tests whether they measure default risk.
+- **The market group's share is largest when the market inputs are far from their average.** On the train months (in-sample), it reaches 24.1% of the IG split in April 2025, when spreads widened, and 22.6% in January 2025, when they were tight. It is 2.5% in March 2024.
+- **The five liquidity inputs barely move the model.** They take about 6% of the split, and leaving them out raises error by 0.4 bp in HY and not at all in IG. Differences this small are too small to read from one refit. Trading volume summed over each company's bonds sits in the company group, so liquidity's share here is a lower bound. Stage b replaces these inputs with standard liquidity measures from trade-level TRACE.
+
+Tables: [`reports/a_group_shares.csv`](reports/a_group_shares.csv) (by grade, maturity and month, train months marked in-sample) and [`reports/a_drop_group.csv`](reports/a_drop_group.csv). Reproduce with `python -m scripts.a_shap_split` (about 8.5 minutes).
+
 ## Data
 
-The market data is licensed and is not in this repo. It comes from WRDS (TRACE Enhanced, CRSP, Compustat and Compustat customer segments) and a one-off Bloomberg CDS pull. Company filings come from SEC EDGAR, which is public. The code reads it from a local folder set in `.env`. Results in this repo are totals and charts only.
+The market data is licensed and is not in this repo. It comes from WRDS (TRACE Enhanced, CRSP, Compustat and Compustat customer segments) and a one-off Bloomberg CDS pull. Company filings come from SEC EDGAR, which is public. The code reads data from a local folder set in `.env`, and refuses any data path inside the repo. Results in this repo are totals and charts only.
 
 ## Layout
 
 ```
-src/csd/        package code
-  config.py     reads paths and settings from .env
-  spark.py      builds the Spark session
-notebooks/      one notebook per stage
+src/            package code (run modules from the repo root: python -m src.<module>)
+  config.py     settings from config.yaml, paths from .env
+  spark.py      builds the Spark session (Spark Connect or local)
+scripts/        one-off jobs such as data exports
+notebooks/      one notebook per stage, exploration only
 reports/        write-up and figures (totals only)
+docs/           method notes per stage
 tests/          tests
+config.yaml     project settings, safe to commit
+.env.example    the machine-specific settings .env needs
 ```
 
 ## Setup
 
 ```
-python -m venv .venv
-.venv/Scripts/activate        # Windows; use source .venv/bin/activate elsewhere
-pip install -e ".[dev,connect]"   # or [dev,local] to run Spark on this machine
-cp .env.example .env              # then fill in the paths
+conda env create -f environment.yml
+conda activate credit-spread-decomp
+cp .env.example .env     # then fill in the paths
+pytest
 ```
 
-The Spark stages target Spark 4.2.0 on Scala 2.13 with GraphFrames 0.12.3. With a Spark Connect server, set `SPARK_REMOTE`; GraphFrames must be installed on the server, and the client needs only the `connect` extra. To run Spark locally instead, install the `local` extra, use Java 17 or 21, and set `GRAPHFRAMES_PACKAGE` to the GraphFrames build for Spark 4.x and Scala 2.13.
+The Spark stages target Spark 4.2.0 on Scala 2.13 with GraphFrames 0.12.3. With a Spark Connect server, set `SPARK_REMOTE`; GraphFrames must be installed on the server. To run Spark locally instead, install `pyspark==4.2.0`, use Java 17 or 21, and set `GRAPHFRAMES_PACKAGE` to the GraphFrames build for Spark 4.x and Scala 2.13.
+
+## How work is done
+
+- `main` holds releases and is protected: changes reach it only by pull request from `dev`, with CI passing.
+- `dev` is the working branch. Each issue gets a branch from `dev` (`feature/`, `docs/`, `chore/` or `ci/` plus a short name) and a pull request back into `dev`.
+- PRs into `dev` do not close issues automatically, so close each issue by hand after its merge.
+- **Spec first.** Each stage starts with a spec in `docs/specs/`: the result the stage must produce, the functions it needs and their acceptance tests. The acceptance tests are committed with the spec and skipped until their issue is done, so the skip ledger shows what is left. A stage is done when its result is produced and none of its tests are skipped.
+- **Review every PR.** Before merging, the diff is read as a reviewer for unnecessary complexity, bugs, readability and tests, and the findings go in the PR's Review section. The topic is complex; the code should not be.
+- **CI** (`lint-and-test`) runs on every pull request and push to `dev` and `main`: flake8, isort, radon (no function above complexity 10), pylint (10.00) and pytest with at least 90% branch coverage of `src/`.
+
+## Licence
+
+All rights reserved. See `LICENSE`.
