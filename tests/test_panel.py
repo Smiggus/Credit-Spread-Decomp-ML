@@ -2,46 +2,18 @@
 
 import json
 
-import numpy as np
 import pandas as pd
 import pytest
 
 import src.config
 from src.panel import feature_columns, file_sha256, input_groups, load_panel, panel_summary
-
-CATEGORIES = {
-    "maturity_bucket": ["1-3y", "3-5y"],
-    "grade_bucket": ["IG", "HY"],
-    "debt_type": ["S-NT"],
-    "sector": ["Energy", "Utilities"],
-}
+from tests.synthetic import synthetic_panel
 
 
 @pytest.fixture(autouse=True)
 def repo_elsewhere(monkeypatch, tmp_path):
     """pytest's tmp_path sits inside the repo, so point the repo guard at a folder beside it."""
     monkeypatch.setattr(src.config, "REPO_ROOT", tmp_path / "repo")
-
-
-def synthetic_panel(n: int = 12) -> pd.DataFrame:
-    """A made-up panel with the configured columns."""
-    rng = np.random.default_rng(0)
-    data = {
-        "snapshot_date": pd.date_range("2024-01-31", periods=n, freq="ME"),
-        "cusip_id": [f"C{i % 4}" for i in range(n)],
-        "issuer_ticker": [f"T{i % 3}" for i in range(n)],
-        "partition": (["train"] * 6 + ["gap"] + ["valid"] * 3 + ["test"] * 2)[:n],
-        "spread_bps": rng.uniform(50, 500, n),
-    }
-    for col in feature_columns():
-        if col in CATEGORIES:
-            values = CATEGORIES[col]
-            data[col] = [values[i % len(values)] for i in range(n)]
-        elif col.startswith(("is_", "has_")) or col == "sector_is_pit":
-            data[col] = [bool(i % 2) for i in range(n)]
-        else:
-            data[col] = rng.normal(size=n)
-    return pd.DataFrame(data)
 
 
 def write_panel(folder, df, sha=None):
