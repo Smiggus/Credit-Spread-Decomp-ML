@@ -38,7 +38,7 @@ The cleaning works on plain status names (trade, cancel, correction, reversal), 
 ## Where things run
 
 - **Export (#9).** `scripts/b_export_trace.py` reads `trace.trace_enhanced` month by month with the read-only WRDS account and writes Parquet, one folder per month, to `TRACE_DIR`. Only the columns the cleaning and measures need. Row counts per month are logged, no rows printed.
-- **Storage.** `TRACE_DIR` is a bucket on the burst box's object store (MinIO), which the Spark cluster can read. A local path also works and is checked to be outside the repo.
+- **Storage.** `TRACE_DIR` is a private bucket on the local MinIO object store. The export writes Parquet there, and the Spark cluster on the burst box reads the trades from it and writes the measures back as Parquet. A local path also works and is checked to be outside the repo.
 - **Cleaning and measures (#10, #11)** run on the Spark Connect cluster, from `src/trace.py` and `src/liquidity.py`. They write one small bond-month table of measures to `LIQUIDITY_PATH`.
 - **Join and rerun (#12)** run in pandas, as stage a does: the measures are joined to the panel on bond and month, and the liquidity group in `config.yaml` gains the new columns.
 
