@@ -6,6 +6,17 @@ spark:
   app_name: credit-spread-decomp
   timezone: UTC
 
+# Stage (a): XGBoost on the raw spread, with the ML II final model's settings.
+spread_model:
+  rounds: 500
+  params:
+    max_depth: 10
+    eta: 0.03
+    subsample: 0.8
+    colsample_bytree: 0.7
+    tree_method: hist
+    seed: 42
+
 # The ML II bond-month panel (PANEL_PATH in .env), used from stage (a) on.
 panel:
   # manifest.json sits next to the parquet file and holds its sha256 and row count.

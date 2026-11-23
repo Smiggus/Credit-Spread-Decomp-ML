@@ -5,6 +5,7 @@ Imports sit inside the tests so the module loads before src/shap_split.py exists
 """
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from src.panel import input_groups
@@ -18,7 +19,6 @@ def split(df):
     return df[df["partition"] == "train"], df[df["partition"] == "valid"]
 
 
-@pytest.mark.skip(reason="waits for #4")
 def test_fit_refuses_test_rows():
     from src.shap_split import fit_spread_model
 
@@ -27,7 +27,6 @@ def test_fit_refuses_test_rows():
         fit_spread_model(df)
 
 
-@pytest.mark.skip(reason="waits for #4")
 def test_model_beats_the_train_mean_on_valid():
     from src.shap_split import fit_spread_model, predict_spread
 
@@ -36,6 +35,28 @@ def test_model_beats_the_train_mean_on_valid():
     model_mae = np.abs(predict_spread(model, valid) - valid["spread_bps"]).mean()
     mean_mae = np.abs(train["spread_bps"].mean() - valid["spread_bps"]).mean()
     assert model_mae < mean_mae
+
+
+def test_prediction_does_not_depend_on_which_categories_a_frame_holds():
+    from src.shap_split import fit_spread_model, predict_spread
+
+    train, valid = split(driven_panel(["coupon_pct"]))
+    # Make sector worth 100 bp, so a category mix-up would move the prediction.
+    train = train.assign(spread_bps=train["spread_bps"] + 100 * (train["sector"] == "Utilities"))
+    model = fit_spread_model(train)
+    is_utility = (valid["sector"] == "Utilities").to_numpy()
+    # Alone, the frame's sector categories are ["Utilities"]; inside valid they are ["Energy", "Utilities"].
+    alone = predict_spread(model, valid[is_utility])
+    np.testing.assert_allclose(alone, predict_spread(model, valid)[is_utility])
+
+
+def test_model_inputs_types():
+    from src.shap_split import model_inputs
+
+    X = model_inputs(synthetic_panel())
+    assert isinstance(X["sector"].dtype, pd.CategoricalDtype)
+    assert X["is_144a"].dtype == float
+    assert X.shape[1] == 33
 
 
 @pytest.mark.skip(reason="waits for #5")
