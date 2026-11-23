@@ -70,7 +70,6 @@ def test_true_false_column_with_a_missing_value_still_fits():
     fit_spread_model(train)
 
 
-@pytest.mark.skip(reason="waits for #5")
 def test_contributions_add_up_to_the_prediction():
     from src.shap_split import fit_spread_model, group_contributions, predict_spread
 
@@ -81,7 +80,6 @@ def test_contributions_add_up_to_the_prediction():
     np.testing.assert_allclose(contribs.sum(axis=1), predict_spread(model, valid), atol=1e-3)
 
 
-@pytest.mark.skip(reason="waits for #5")
 def test_liquidity_driven_spread_gives_liquidity_the_largest_share():
     from src.shap_split import fit_spread_model, group_contributions
 
