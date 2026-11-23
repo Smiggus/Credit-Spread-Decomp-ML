@@ -70,7 +70,6 @@ def test_true_false_column_with_a_missing_value_still_fits():
     fit_spread_model(train)
 
 
-@pytest.mark.skip(reason="waits for #5")
 def test_contributions_add_up_to_the_prediction():
     from src.shap_split import fit_spread_model, group_contributions, predict_spread
 
@@ -78,10 +77,19 @@ def test_contributions_add_up_to_the_prediction():
     model = fit_spread_model(train)
     contribs = group_contributions(model, valid)
     assert list(contribs.columns) == list(input_groups()) + ["base"]
-    np.testing.assert_allclose(contribs.sum(axis=1), predict_spread(model, valid), atol=1e-3)
+    # XGBoost computes contributions and predictions separately in float32.
+    np.testing.assert_allclose(contribs.sum(axis=1), predict_spread(model, valid), rtol=1e-6, atol=1e-3)
 
 
-@pytest.mark.skip(reason="waits for #5")
+def test_a_categorical_input_lands_in_its_group():
+    from src.shap_split import fit_spread_model, group_contributions
+
+    train, valid = split(driven_panel(["coupon_pct"]))
+    train = train.assign(spread_bps=train["spread_bps"] + 100 * (train["sector"] == "Utilities"))
+    contribs = group_contributions(fit_spread_model(train), valid)
+    assert contribs["company"].abs().mean() > 20  # sector belongs to the company group
+
+
 def test_liquidity_driven_spread_gives_liquidity_the_largest_share():
     from src.shap_split import fit_spread_model, group_contributions
 
