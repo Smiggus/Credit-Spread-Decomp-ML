@@ -4,16 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from src.config import REPO_ROOT, load_config, load_settings, require
+from src.config import REPO_ROOT, ensure_outside_repo, load_settings, require
 
-ENV_NAMES = (
-    "DATA_DIR",
-    "PANEL_PATH",
-    "XBRL_FACTS_PATH",
-    "BBG_CDS_PATH",
-    "SPARK_MASTER",
-    "SPARK_REMOTE",
-)
+ENV_NAMES = ("PANEL_PATH", "SPARK_MASTER", "SPARK_REMOTE", "GRAPHFRAMES_PACKAGE")
 
 
 def test_defaults_without_env(monkeypatch, tmp_path):
@@ -22,22 +15,31 @@ def test_defaults_without_env(monkeypatch, tmp_path):
     settings = load_settings(env_file=tmp_path / "missing.env")
     assert settings.spark_master == "local[*]"
     assert settings.spark_remote is None
-    assert settings.data_dir is None
+    assert settings.panel_path is None
 
 
-def test_data_dir_inside_repo_is_refused(monkeypatch, tmp_path):
-    monkeypatch.setenv("DATA_DIR", str(REPO_ROOT / "data"))
+def test_blank_variable_counts_as_unset(monkeypatch, tmp_path):
+    monkeypatch.setenv("SPARK_REMOTE", "   ")
+    assert load_settings(env_file=tmp_path / "missing.env").spark_remote is None
+
+
+def test_path_inside_repo_is_refused():
+    with pytest.raises(ValueError, match="panel file is inside the repo"):
+        ensure_outside_repo(REPO_ROOT / "data" / "panel.parquet", "panel file")
+
+
+def test_relative_path_inside_repo_is_refused(monkeypatch):
+    monkeypatch.chdir(REPO_ROOT)
     with pytest.raises(ValueError):
-        load_settings(env_file=tmp_path / "missing.env")
+        ensure_outside_repo(Path("data/panel.parquet"), "panel file")
+
+
+def test_path_outside_repo_is_kept():
+    outside = REPO_ROOT.parent / "outside-the-repo" / "panel.parquet"
+    assert ensure_outside_repo(outside, "panel file") == outside
 
 
 def test_require_names_missing_variable():
-    with pytest.raises(RuntimeError, match="DATA_DIR"):
-        require(None, "DATA_DIR")
-    assert require(Path("x"), "DATA_DIR") == Path("x")
-
-
-def test_committed_config_has_spark_settings():
-    config = load_config()
-    assert config["spark"]["app_name"]
-    assert config["spark"]["timezone"] == "UTC"
+    with pytest.raises(RuntimeError, match="PANEL_PATH"):
+        require(None, "PANEL_PATH")
+    assert require(Path("x"), "PANEL_PATH") == Path("x")

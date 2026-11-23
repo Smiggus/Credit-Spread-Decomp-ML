@@ -1,8 +1,6 @@
 # config.yaml  [Project settings, safe to commit]
 # Machine-specific paths and connection details go in .env, never here.
-
-project:
-  name: credit-spread-decomp
+# A setting is added here when a stage first reads it.
 
 spark:
   app_name: credit-spread-decomp
@@ -18,7 +16,6 @@ panel:
   # Partitions loaded by default. The test months stay closed until the pricer (stage f),
   # as in ML II, so the decomposition is built without them.
   default_partitions: [train, gap, valid]
-  categorical: [maturity_bucket, grade_bucket, debt_type, sector]
   # The five input groups: the unit of the SHAP split in stage (a). 33 inputs in all.
   input_groups:
     bond_terms: [years_to_maturity, maturity_bucket, coupon_pct, grade_bucket, is_144a, debt_type,

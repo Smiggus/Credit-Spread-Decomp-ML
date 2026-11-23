@@ -62,7 +62,9 @@ The Spark stages target Spark 4.2.0 on Scala 2.13 with GraphFrames 0.12.3. With 
 - `main` holds releases and is protected: changes reach it only by pull request from `dev`, with CI passing.
 - `dev` is the working branch. Each issue gets a branch from `dev` (`feature/`, `docs/`, `chore/` or `ci/` plus a short name) and a pull request back into `dev`.
 - PRs into `dev` do not close issues automatically, so close each issue by hand after its merge.
-- CI (`lint-and-test`) runs flake8 and pytest on every pull request and push to `dev` and `main`.
+- **Spec first.** Each stage starts with a spec in `docs/specs/`: the result the stage must produce, the functions it needs and their acceptance tests. The acceptance tests are committed with the spec and skipped until their issue is done, so the skip ledger shows what is left. A stage is done when its result is produced and none of its tests are skipped.
+- **Review every PR.** Before merging, the diff is read as a reviewer for unnecessary complexity, bugs, readability and tests, and the findings go in the PR's Review section. The topic is complex; the code should not be.
+- **CI** (`lint-and-test`) runs on every pull request and push to `dev` and `main`: flake8, isort, radon (no function above complexity 10), pylint (10.00) and pytest with at least 90% branch coverage of `src/`.
 
 ## Licence
 

@@ -13,7 +13,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-from src.config import load_config, load_settings, require
+from src.config import ensure_outside_repo, load_config, load_settings, require
 
 ALL_PARTITIONS = ("train", "gap", "valid", "test")
 
@@ -33,11 +33,6 @@ def feature_columns(config: dict[str, Any] | None = None) -> list[str]:
     return [col for cols in input_groups(config).values() for col in cols]
 
 
-def group_of(config: dict[str, Any] | None = None) -> dict[str, str]:
-    """Column to the name of its input group."""
-    return {col: name for name, cols in input_groups(config).items() for col in cols}
-
-
 def file_sha256(path: Path) -> str:
     """SHA-256 of a file, read in 1 MiB blocks."""
     digest = hashlib.sha256()
@@ -47,63 +42,46 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def check_manifest(parquet: Path, manifest_name: str) -> dict[str, Any]:
-    """Check the parquet file against its manifest and return the manifest.
-
-    Raises FileNotFoundError if the manifest is missing and ValueError if the checksum differs.
-    """
+def check_manifest(parquet: Path, manifest_name: str) -> None:
+    """Raise unless the parquet file exists and matches the sha256 in the manifest beside it."""
+    if not parquet.exists():
+        raise FileNotFoundError(f"Panel file not found: {parquet}")
     manifest_path = parquet.with_name(manifest_name)
     if not manifest_path.exists():
-        raise FileNotFoundError(f"{manifest_name} not found next to the panel file.")
-    info = json.loads(manifest_path.read_text(encoding="utf-8"))
+        raise FileNotFoundError(f"{manifest_name} not found in {parquet.parent}")
+    expected = json.loads(manifest_path.read_text(encoding="utf-8"))["sha256"].lower()
     actual = file_sha256(parquet)
-    if actual != info["sha256"]:
-        raise ValueError(
-            f"Panel file does not match its manifest (sha256 {actual[:12]}... vs {info['sha256'][:12]}...)."
-        )
-    return info
-
-
-def validate_panel(df: pd.DataFrame, config: dict[str, Any] | None = None) -> None:
-    """Fail if a required column is missing or a partition is unknown."""
-    cfg = panel_config(config)
-    required = list(cfg["id_columns"]) + [cfg["target"]] + feature_columns(config)
-    missing = [col for col in required if col not in df.columns]
-    if missing:
-        raise ValueError(f"Panel is missing columns: {missing}")
-    unknown = set(df["partition"].dropna().unique()) - set(ALL_PARTITIONS)
-    if unknown:
-        raise ValueError(f"Unknown partitions in the panel: {sorted(unknown)}")
+    if actual != expected:
+        raise ValueError(f"Panel file does not match its manifest (sha256 {actual[:12]}... vs {expected[:12]}...).")
 
 
 def load_panel(
-    partitions: Iterable[str] | None = None,
+    partitions: str | Iterable[str] | None = None,
     path: Path | None = None,
     config: dict[str, Any] | None = None,
-    check: bool = True,
 ) -> pd.DataFrame:
-    """Read the panel, keep the requested partitions and return ids, target and inputs.
+    """Read the panel's ids, target and inputs for the requested partitions.
 
-    partitions: default from ``config.yaml`` (train, gap and valid; test stays closed).
-    path: default ``PANEL_PATH`` from ``.env``.
-    check: verify the file against its manifest first.
+    partitions: one name or several; default from ``config.yaml`` (train, gap and valid).
+        The test months are read only when asked for.
+    path: default ``PANEL_PATH`` from ``.env``. It must lie outside the repo.
+    The file is checked against its manifest first. A missing column fails in the read.
     """
     cfg = panel_config(config)
-    parts = list(partitions) if partitions is not None else list(cfg["default_partitions"])
-    bad = set(parts) - set(ALL_PARTITIONS)
-    if bad:
-        raise ValueError(f"Unknown partitions requested: {sorted(bad)}")
+    if partitions is None:
+        partitions = cfg["default_partitions"]
+    parts = [partitions] if isinstance(partitions, str) else list(partitions)
+    unknown = set(parts) - set(ALL_PARTITIONS)
+    if unknown:
+        raise ValueError(f"Unknown partitions requested: {sorted(unknown)}")
 
-    parquet = path or require(load_settings().panel_path, "PANEL_PATH")
-    if check:
-        check_manifest(parquet, cfg["manifest_name"])
+    parquet = ensure_outside_repo(path or require(load_settings().panel_path, "PANEL_PATH"), "panel file")
+    check_manifest(parquet, cfg["manifest_name"])
 
     columns = list(cfg["id_columns"]) + [cfg["target"]] + feature_columns(config)
-    df = pd.read_parquet(parquet, columns=columns)
-    validate_panel(df, config)
-    df = df[df["partition"].isin(parts)].copy()
+    df = pd.read_parquet(parquet, columns=columns, filters=[("partition", "in", parts)])
     df["snapshot_date"] = pd.to_datetime(df["snapshot_date"])
-    return df.reset_index(drop=True)
+    return df
 
 
 def panel_summary(df: pd.DataFrame, config: dict[str, Any] | None = None) -> dict[str, Any]:
