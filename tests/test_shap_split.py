@@ -1,14 +1,19 @@
-"""Acceptance tests for stage a (docs/specs/a_shap_split.md), written before the code.
-
-Each test is skipped until its issue is done; the PR that closes the issue removes the skip.
-Imports sit inside the tests so the module loads before src/shap_split.py exists.
-"""
+"""Acceptance tests for stage a (docs/specs/a_shap_split.md), on synthetic panels where the answer is known."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from scripts.a_shap_split import shares_table
 from src.panel import input_groups
+from src.shap_split import (
+    drop_group_mae,
+    fit_spread_model,
+    group_contributions,
+    group_shares,
+    model_inputs,
+    predict_spread,
+)
 from tests.synthetic import driven_panel, synthetic_panel
 
 LIQUIDITY = ["n_trades", "log_par_volume", "log_par_volume_month"]
@@ -20,16 +25,12 @@ def split(df):
 
 
 def test_fit_refuses_test_rows():
-    from src.shap_split import fit_spread_model
-
     df = synthetic_panel(60)
     with pytest.raises(ValueError, match="test"):
         fit_spread_model(df)
 
 
 def test_model_beats_the_train_mean_on_valid():
-    from src.shap_split import fit_spread_model, predict_spread
-
     train, valid = split(driven_panel(LIQUIDITY))
     model = fit_spread_model(train)
     model_mae = np.abs(predict_spread(model, valid) - valid["spread_bps"]).mean()
@@ -38,8 +39,6 @@ def test_model_beats_the_train_mean_on_valid():
 
 
 def test_prediction_does_not_depend_on_which_categories_a_frame_holds():
-    from src.shap_split import fit_spread_model, predict_spread
-
     train, valid = split(driven_panel(["coupon_pct"]))
     # Make sector worth 100 bp, so a category mix-up would move the prediction.
     train = train.assign(spread_bps=train["spread_bps"] + 100 * (train["sector"] == "Utilities"))
@@ -52,8 +51,6 @@ def test_prediction_does_not_depend_on_which_categories_a_frame_holds():
 
 
 def test_model_inputs_types():
-    from src.shap_split import model_inputs
-
     X = model_inputs(synthetic_panel())
     assert isinstance(X["sector"].dtype, pd.CategoricalDtype)
     assert X["is_144a"].dtype == float
@@ -61,8 +58,6 @@ def test_model_inputs_types():
 
 
 def test_true_false_column_with_a_missing_value_still_fits():
-    from src.shap_split import fit_spread_model, model_inputs
-
     train, _ = split(driven_panel(["coupon_pct"]))
     train = train.astype({"is_144a": object})
     train.iloc[0, train.columns.get_loc("is_144a")] = None
@@ -71,8 +66,6 @@ def test_true_false_column_with_a_missing_value_still_fits():
 
 
 def test_contributions_add_up_to_the_prediction():
-    from src.shap_split import fit_spread_model, group_contributions, predict_spread
-
     train, valid = split(driven_panel(LIQUIDITY))
     model = fit_spread_model(train)
     contribs = group_contributions(model, valid)
@@ -82,8 +75,6 @@ def test_contributions_add_up_to_the_prediction():
 
 
 def test_a_categorical_input_lands_in_its_group():
-    from src.shap_split import fit_spread_model, group_contributions
-
     train, valid = split(driven_panel(["coupon_pct"]))
     train = train.assign(spread_bps=train["spread_bps"] + 100 * (train["sector"] == "Utilities"))
     contribs = group_contributions(fit_spread_model(train), valid)
@@ -91,8 +82,6 @@ def test_a_categorical_input_lands_in_its_group():
 
 
 def test_liquidity_driven_spread_gives_liquidity_the_largest_share():
-    from src.shap_split import fit_spread_model, group_contributions
-
     train, valid = split(driven_panel(LIQUIDITY))
     contribs = group_contributions(fit_spread_model(train), valid).drop(columns="base")
     shares = contribs.abs().mean() / contribs.abs().mean().sum()
@@ -100,8 +89,6 @@ def test_liquidity_driven_spread_gives_liquidity_the_largest_share():
 
 
 def test_shares_sum_to_100_within_each_cut():
-    from src.shap_split import fit_spread_model, group_contributions, group_shares
-
     train, valid = split(driven_panel(LIQUIDITY))
     contribs = group_contributions(fit_spread_model(train), valid)
     table = group_shares(contribs, valid, by=["grade_bucket", "maturity_bucket"])
@@ -110,8 +97,6 @@ def test_shares_sum_to_100_within_each_cut():
 
 
 def test_shares_on_known_numbers():
-    from src.shap_split import group_shares
-
     contribs = pd.DataFrame({"liquidity": [10.0, -30.0, 5.0], "market": [10.0, 10.0, 5.0], "base": [100.0] * 3})
     df = pd.DataFrame({"grade_bucket": ["IG", "IG", "HY"]})
     table = group_shares(contribs, df, by=["grade_bucket"]).set_index(["grade_bucket", "group"])
@@ -121,9 +106,6 @@ def test_shares_on_known_numbers():
 
 
 def test_written_table_has_no_identifiers_and_covers_every_row():
-    from scripts.a_shap_split import shares_table
-    from src.shap_split import fit_spread_model, group_contributions
-
     train, valid = split(driven_panel(LIQUIDITY))
     valid = valid.assign(maturity_bucket=valid["maturity_bucket"].where(valid.index % 7 != 0))  # some missing
     table = shares_table(group_contributions(fit_spread_model(train), valid), valid)
@@ -134,20 +116,24 @@ def test_written_table_has_no_identifiers_and_covers_every_row():
 
 
 def test_misaligned_rows_are_refused():
-    from src.shap_split import group_shares
-
     contribs = pd.DataFrame({"liquidity": [1.0, 2.0], "base": [100.0, 100.0]})
     df = pd.DataFrame({"grade_bucket": ["IG", "HY"]}, index=[5, 6])
     with pytest.raises(ValueError, match="same index"):
         group_shares(contribs, df, by=["grade_bucket"])
 
 
-@pytest.mark.skip(reason="waits for #7")
 def test_leaving_out_the_driving_group_hurts_most():
-    from src.shap_split import drop_group_mae
-
     train, valid = split(driven_panel(LIQUIDITY))
     table = drop_group_mae(train, valid)
     rise = table.groupby("left_out")["mae_bp"].mean()
     rise = rise.drop("none") - rise["none"]
     assert rise.idxmax() == "liquidity"
+    assert set(table["left_out"]) == {"none"} | set(input_groups())
+    assert set(table["grade_bucket"]) == {"IG", "HY"}
+
+
+def test_drop_group_refuses_test_rows_in_valid():
+    df = synthetic_panel(60)
+    train, test = df[df["partition"] == "train"], df[df["partition"] == "test"]
+    with pytest.raises(ValueError, match="test"):
+        drop_group_mae(train, test)

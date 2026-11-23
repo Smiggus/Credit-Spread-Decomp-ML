@@ -27,12 +27,18 @@ def model_inputs(df: pd.DataFrame, columns: list[str] | None = None) -> pd.DataF
     return X
 
 
-def fit_spread_model(train: pd.DataFrame, config: dict[str, Any] | None = None) -> xgb.Booster:
-    """Fit XGBoost on the raw spread. Raises ValueError if any row is from the test months."""
-    if (train["partition"] == "test").any():
-        raise ValueError("Training rows include the test months, which stay closed until the pricer.")
+def _refuse_test_rows(df: pd.DataFrame) -> None:
+    if (df["partition"] == "test").any():
+        raise ValueError("Rows include the test months, which stay closed until the pricer.")
+
+
+def fit_spread_model(
+    train: pd.DataFrame, columns: list[str] | None = None, config: dict[str, Any] | None = None
+) -> xgb.Booster:
+    """Fit XGBoost on the raw spread, on ``columns`` (default: all inputs). Refuses test rows."""
+    _refuse_test_rows(train)
     config = config or load_config()
-    data = xgb.DMatrix(model_inputs(train), label=train[config["panel"]["target"]], enable_categorical=True)
+    data = xgb.DMatrix(model_inputs(train, columns), label=train[config["panel"]["target"]], enable_categorical=True)
     return xgb.train(config["spread_model"]["params"], data, num_boost_round=config["spread_model"]["rounds"])
 
 
@@ -78,3 +84,20 @@ def group_shares(contribs: pd.DataFrame, df: pd.DataFrame, by: list[str]) -> pd.
         return wide.reset_index().melt(id_vars=by, var_name="group", value_name=name)
 
     return long(signed, "mean_bp").merge(long(shares, "share_pct"), on=by + ["group"])
+
+
+def drop_group_mae(train: pd.DataFrame, valid: pd.DataFrame, config: dict[str, Any] | None = None) -> pd.DataFrame:
+    """Valid MAE in bp by stratum for the full model (``left_out`` "none") and for the model
+    refit without each input group in turn. Refuses test rows in either frame.
+    """
+    _refuse_test_rows(valid)
+    config = config or load_config()
+    stratum, target = config["panel"]["stratum"], config["panel"]["target"]
+    groups = input_groups(config)
+    rows = []
+    for left_out in ["none"] + list(groups):
+        columns = [col for col in feature_columns(config) if col not in groups.get(left_out, [])]
+        error = (predict_spread(fit_spread_model(train, columns, config), valid) - valid[target]).abs()
+        for name, mae in error.groupby(valid[stratum], dropna=False).mean().items():
+            rows.append({"left_out": left_out, stratum: name, "mae_bp": mae})
+    return pd.DataFrame(rows)

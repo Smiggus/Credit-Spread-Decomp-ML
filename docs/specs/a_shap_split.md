@@ -29,7 +29,7 @@ The stage is done when:
 | Function | Does | Issue |
 |---|---|---|
 | `model_inputs(df)` | The 33 inputs, with categorical columns as pandas categories and booleans as 0/1 | #4 |
-| `fit_spread_model(train)` | XGBoost regressor on the raw spread, settings from `config.yaml`. Raises ValueError on any test row | #4 |
+| `fit_spread_model(train, columns=None)` | XGBoost regressor on the raw spread, settings from `config.yaml`. Raises ValueError on any test row. `columns` (all inputs by default) was added with #7 | #4 |
 | `predict_spread(model, df)` | Predicted spread in bp | #4 |
 | `group_contributions(model, df)` | One column per input group plus `base`, in bp, row-aligned with `df` | #5 |
 | `group_shares(contribs, df, by)` | For each cut in `by` and each group: `mean_bp` and `share_pct`. No identifier columns | #6 |
@@ -41,7 +41,7 @@ XGBoost settings, the same as the ML II final model: 500 trees, depth 10, learni
 
 ## Acceptance tests (`tests/test_shap_split.py`)
 
-Written before the code, on synthetic panels where the answer is known. Each is skipped until its issue is done.
+Written before the code, on synthetic panels where the answer is known, and skipped until their issue was done. Stage a is complete: all pass and none are skipped.
 
 | Test | Issue |
 |---|---|
@@ -55,3 +55,4 @@ Written before the code, on synthetic panels where the answer is known. Each is 
 | The written table has no bond or company identifier columns, and rows with a missing cut value form their own cut | #6 |
 | Contributions not row-aligned with the panel are refused | #6 |
 | Leaving out the group that drives a synthetic spread raises valid MAE the most | #7 |
+| The drop-group check refuses test rows | #7 |
