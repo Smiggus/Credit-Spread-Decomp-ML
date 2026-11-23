@@ -37,8 +37,20 @@ The cleaning works on plain status names (trade, cancel, correction, reversal), 
 
 ## Where things run
 
-- **Export (#9).** `scripts/b_export_trace.py` reads `trace.trace_enhanced` month by month with the read-only WRDS account and writes Parquet, one folder per month, to `TRACE_DIR`. Only the columns the cleaning and measures need. Row counts per month are logged, no rows printed.
-- **Storage.** `TRACE_DIR` is a private bucket on the local MinIO object store. The export writes Parquet there, and the Spark cluster on the burst box reads the trades from it and writes the measures back as Parquet. A local path also works and is checked to be outside the repo.
+- **Export (#9), done by the data platform.** The data platform owns the WRDS account, the export and the pipeline; this repo works with what it delivers. The platform exports `trace.trace_enhanced` and `trace.trace_btds144a_enhanced` with the read-only account to Parquet in a private bucket on the local MinIO object store, under the data contract below. This repo's part of #9 is the contract and a reader that checks a delivery against it.
+- **Storage.** `TRACE_DIR` points at that bucket. The Spark cluster reads the trades from it and writes the measures back as Parquet. A local path also works and is checked to be outside the repo.
+
+### Data contract for the TRACE delivery (#9)
+
+| Item | Contract |
+|---|---|
+| Tables | `trace.trace_enhanced` and `trace.trace_btds144a_enhanced`, every column as WRDS serves it, no filtering or cleaning (cleaning happens here, in #10, so it is tested and visible) |
+| Window | January 2024 to March 2026 first; back to July 2002 later (#13) |
+| Layout | `<TRACE_DIR>/<table>/year=YYYY/month=MM/*.parquet`, partitioned on the trade execution date |
+| Manifest | One `_manifest.json` per month: table, month, row count, export time and the WRDS query used |
+| Licence | Private bucket, no public access; no rows in messages, logs or the repo |
+
+The reader checks that every month in the window is present, that each month's row count matches its manifest, and that the columns the cleaning needs exist. It fails with a message naming the month or column otherwise. The check runs with pyarrow on this machine, so it is tested without Spark; with Spark Connect the files are read on the cluster.
 - **Cleaning and measures (#10, #11)** run on the Spark Connect cluster, from `src/trace.py` and `src/liquidity.py`. They write one small bond-month table of measures to `LIQUIDITY_PATH`.
 - **Join and rerun (#12)** run in pandas, as stage a does: the measures are joined to the panel on bond and month, and the liquidity group in `config.yaml` gains the new columns.
 
@@ -46,7 +58,8 @@ The cleaning works on plain status names (trade, cancel, correction, reversal), 
 
 | Function | Does | Issue |
 |---|---|---|
-| `scripts/b_export_trace.py` | Month-by-month export to Parquet; refuses a local path inside the repo | #9 |
+| `trace.check_delivery(trace_dir, table, months)` | Checks a delivery against the contract with pyarrow (no Spark): every month present, row counts match the manifests, needed columns exist. Refuses a local path inside the repo | #9 |
+| `trace.read_trades(spark, trace_dir, table, months)` | `check_delivery`, then reads those months into Spark | #9 |
 | `trace.clean_trades(trades)` | Spark DataFrame in, cleaned trades out | #10 |
 | `trace.cleaning_counts(trades)` | Trades removed by each cleaning step, as totals | #10 |
 | `liquidity.daily_measures(trades, snapshot_days)` | Daily Amihud and IRC per bond, trades before the snapshot day only | #11 |
@@ -60,7 +73,9 @@ Written before the code, on small made-up trade sets with hand-computed answers 
 
 | Test | Issue |
 |---|---|
-| The export refuses a local path inside the repo | #9 |
+| The reader refuses a local path inside the repo | #9 |
+| The reader accepts a complete delivery | #9 |
+| The reader names a missing month and a month whose row count differs from its manifest | #9 |
 | A cancelled trade and the trade it cancels are both removed | #10 |
 | A corrected trade replaces the original | #10 |
 | An interdealer trade reported by both dealers is counted once | #10 |
