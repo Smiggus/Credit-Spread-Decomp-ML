@@ -57,3 +57,24 @@ def group_contributions(model: xgb.Booster, df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame({name: by_input[cols].sum(axis=1) for name, cols in input_groups().items()})
     out["base"] = raw[:, -1]
     return out
+
+
+def group_shares(contribs: pd.DataFrame, df: pd.DataFrame, by: list[str]) -> pd.DataFrame:
+    """Each group's mean contribution (``mean_bp``) and share of the mean absolute contribution
+    (``share_pct``) within each cut of ``df[by]``. One row per cut and group; no identifiers.
+
+    ``contribs`` must be row-aligned with ``df`` (same index). A missing cut value is its own
+    cut, so every cut covers every row.
+    """
+    if not contribs.index.equals(df.index):
+        raise ValueError("contribs and df must share the same index (one row each, same order).")
+    groups = contribs.drop(columns="base")
+    keys = [df[col] for col in by]
+    absolute = groups.abs().groupby(keys, dropna=False, observed=True).mean()
+    shares = absolute.div(absolute.sum(axis=1), axis=0) * 100
+    signed = groups.groupby(keys, dropna=False, observed=True).mean()
+
+    def long(wide: pd.DataFrame, name: str) -> pd.DataFrame:
+        return wide.reset_index().melt(id_vars=by, var_name="group", value_name=name)
+
+    return long(signed, "mean_bp").merge(long(shares, "share_pct"), on=by + ["group"])

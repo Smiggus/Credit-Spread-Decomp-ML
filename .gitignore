@@ -6,6 +6,9 @@ data/
 *.feather
 *.pkl
 *.joblib
+# Exceptions: named result tables of totals only (see reports/README.md). Add each one by name.
+!reports/a_group_shares.csv
+!reports/a_drop_group.csv
 
 # Secrets
 .env

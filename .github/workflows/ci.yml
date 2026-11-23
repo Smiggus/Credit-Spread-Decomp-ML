@@ -26,7 +26,7 @@ jobs:
       # Only what the tests and checks import. The full environment is environment.yml.
       - name: install dependencies
         run: >
-          pip install pyyaml python-dotenv numpy "pandas<3" pyarrow "pyspark-client==4.2.0" "graphframes-py==0.12.3" "xgboost>=3.1"
+          pip install pyyaml python-dotenv numpy "pandas<3" pyarrow "pyspark-client==4.2.0" "graphframes-py==0.12.3" "xgboost>=3.1" matplotlib
           pytest pytest-cov pylint isort radon
 
       - name: isort
