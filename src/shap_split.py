@@ -98,6 +98,6 @@ def drop_group_mae(train: pd.DataFrame, valid: pd.DataFrame, config: dict[str, A
     for left_out in ["none"] + list(groups):
         columns = [col for col in feature_columns(config) if col not in groups.get(left_out, [])]
         error = (predict_spread(fit_spread_model(train, columns, config), valid) - valid[target]).abs()
-        for name, mae in error.groupby(valid[stratum]).mean().items():
+        for name, mae in error.groupby(valid[stratum], dropna=False).mean().items():
             rows.append({"left_out": left_out, stratum: name, "mae_bp": mae})
     return pd.DataFrame(rows)

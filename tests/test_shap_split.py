@@ -1,7 +1,4 @@
-"""Acceptance tests for stage a (docs/specs/a_shap_split.md), written before the code.
-
-Each test was skipped until its issue was done. Stage a is complete, so none are skipped now.
-"""
+"""Acceptance tests for stage a (docs/specs/a_shap_split.md), on synthetic panels where the answer is known."""
 
 import numpy as np
 import pandas as pd

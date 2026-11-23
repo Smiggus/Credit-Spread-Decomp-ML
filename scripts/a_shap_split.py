@@ -1,8 +1,10 @@
 """Stage a end to end: fit on the train months, split the predicted spread on train and valid,
-write the shares table and the chart. Totals only.
+and write reports/a_group_shares.csv, reports/figures/a_group_shares.png and
+reports/a_drop_group.csv. Totals only.
 
 Run from the repo root: python -m scripts.a_shap_split
-About 8 minutes on a laptop, almost all of it the SHAP values for about 148,000 rows.
+About 8.5 minutes on a laptop: the SHAP values for about 148,000 rows take most of it, and the
+six drop-group fits about a minute.
 """
 
 from __future__ import annotations
