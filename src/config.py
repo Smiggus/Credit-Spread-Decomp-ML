@@ -37,29 +37,33 @@ def _env(name: str) -> str | None:
     return os.getenv(name, "").strip() or None
 
 
-def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
+def load_config() -> dict[str, Any]:
     """Read the committed project settings from ``config.yaml``."""
-    with open(path, encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
+    with open(CONFIG_PATH, encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
-    """Read machine-specific settings, loading ``.env`` from the repo root first.
-
-    Raises ValueError if a data path points inside the repo, so licensed data cannot be
-    committed by mistake.
-    """
+    """Read machine-specific settings, loading ``.env`` from the repo root first."""
     load_dotenv(env_file or REPO_ROOT / ".env", override=False)
     panel = _env("PANEL_PATH")
-    panel_path = Path(panel).expanduser() if panel else None
-    if panel_path is not None and panel_path.resolve().is_relative_to(REPO_ROOT):
-        raise ValueError("PANEL_PATH points inside the repo. Keep licensed data outside it.")
     return Settings(
-        panel_path=panel_path,
+        panel_path=Path(panel).expanduser() if panel else None,
         spark_master=_env("SPARK_MASTER") or "local[*]",
         spark_remote=_env("SPARK_REMOTE"),
         graphframes_package=_env("GRAPHFRAMES_PACKAGE"),
     )
+
+
+def ensure_outside_repo(path: Path, what: str) -> Path:
+    """Return ``path`` if it lies outside the repo; raise ValueError if it lies inside.
+
+    Every reader of licensed data calls this on the path it is about to read, so the data
+    cannot end up in a commit.
+    """
+    if path.resolve().is_relative_to(REPO_ROOT):
+        raise ValueError(f"The {what} is inside the repo. Keep licensed data outside it.")
+    return path
 
 
 def require(path: Path | None, name: str) -> Path:

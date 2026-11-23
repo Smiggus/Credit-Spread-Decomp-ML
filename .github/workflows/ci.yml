@@ -17,6 +17,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: environment.yml
 
       # Fail fast: lint takes seconds.
       - name: flake8
@@ -25,7 +26,7 @@ jobs:
       # Only what the tests and checks import. The full environment is environment.yml.
       - name: install dependencies
         run: >
-          pip install pyyaml python-dotenv numpy "pandas<3" pyarrow "pyspark-client==4.2.0"
+          pip install pyyaml python-dotenv numpy "pandas<3" pyarrow "pyspark-client==4.2.0" "graphframes-py==0.12.3"
           pytest pytest-cov pylint isort radon
 
       - name: isort
