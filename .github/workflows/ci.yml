@@ -23,7 +23,7 @@ jobs:
 
       # Only what the tests import. The full environment is environment.yml.
       - name: install test dependencies
-        run: pip install pyyaml python-dotenv pytest pytest-cov
+        run: pip install pyyaml python-dotenv pytest pytest-cov numpy "pandas<3" pyarrow
 
       - name: pytest
         run: pytest --cov=src --cov-report=term-missing
