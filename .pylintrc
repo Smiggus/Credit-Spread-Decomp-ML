@@ -7,3 +7,7 @@ max-line-length=120
 [BASIC]
 # Standard modelling names.
 good-names=X,X_train,X_valid,X_test,y,y_train,y_valid,y_test,df,i,j,k
+
+[TYPECHECK]
+# SparkSession.builder is a class property that pylint cannot see through.
+generated-members=SparkSession.builder.*,builder.*

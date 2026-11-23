@@ -16,14 +16,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       # Fail fast: lint takes seconds.
       - name: flake8
         run: pipx run flake8 src tests scripts
 
-      # Only what the tests import. The full environment is environment.yml.
-      - name: install test dependencies
-        run: pip install pyyaml python-dotenv pytest pytest-cov numpy "pandas<3" pyarrow
+      # Only what the tests and checks import. The full environment is environment.yml.
+      - name: install dependencies
+        run: >
+          pip install pyyaml python-dotenv numpy "pandas<3" pyarrow "pyspark-client==4.2.0"
+          pytest pytest-cov pylint isort radon
 
-      - name: pytest
-        run: pytest --cov=src --cov-report=term-missing
+      - name: isort
+        run: isort --check-only --diff src tests scripts
+
+      # No function above complexity 10 (grade C or worse): the topic is complex, the code should not be.
+      - name: radon
+        run: |
+          report="$(radon cc src scripts -s -n C)"
+          echo "${report:-radon: nothing above complexity 10}"
+          test -z "$report"
+
+      - name: pylint
+        run: pylint src scripts --fail-under=10
+
+      # scripts/ talk to the cluster and are checked by hand, so coverage counts src/ only.
+      - name: pytest with branch coverage
+        run: pytest --cov=src --cov-branch --cov-report=term-missing --cov-fail-under=90

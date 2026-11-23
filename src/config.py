@@ -5,7 +5,7 @@ Two sources, kept apart:
 - ``.env`` holds machine-specific paths and connection details, never committed.
 
 Licensed data lives outside the repo. Every data path comes from the environment, so no
-data location is written in the code.
+data location is written in the code. Add a setting here when a stage first needs it.
 """
 
 from __future__ import annotations
@@ -26,25 +26,15 @@ CONFIG_PATH = REPO_ROOT / "config.yaml"
 class Settings:
     """Machine-specific settings read from the environment."""
 
-    data_dir: Path | None
     panel_path: Path | None
-    xbrl_facts_path: Path | None
-    bbg_cds_path: Path | None
-    wrds_username: str | None
-    sec_user_agent: str | None
     spark_master: str
     spark_remote: str | None
     graphframes_package: str | None
 
 
-def _path(name: str) -> Path | None:
-    value = os.getenv(name, "").strip()
-    return Path(value).expanduser() if value else None
-
-
-def _text(name: str) -> str | None:
-    value = os.getenv(name, "").strip()
-    return value or None
+def _env(name: str) -> str | None:
+    """An environment variable, or None when it is unset or blank."""
+    return os.getenv(name, "").strip() or None
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
@@ -54,29 +44,22 @@ def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
-    """Read machine-specific settings, loading ``.env`` from the repo root first."""
+    """Read machine-specific settings, loading ``.env`` from the repo root first.
+
+    Raises ValueError if a data path points inside the repo, so licensed data cannot be
+    committed by mistake.
+    """
     load_dotenv(env_file or REPO_ROOT / ".env", override=False)
-    settings = Settings(
-        data_dir=_path("DATA_DIR"),
-        panel_path=_path("PANEL_PATH"),
-        xbrl_facts_path=_path("XBRL_FACTS_PATH"),
-        bbg_cds_path=_path("BBG_CDS_PATH"),
-        wrds_username=_text("WRDS_USERNAME"),
-        sec_user_agent=_text("SEC_USER_AGENT"),
-        spark_master=_text("SPARK_MASTER") or "local[*]",
-        spark_remote=_text("SPARK_REMOTE"),
-        graphframes_package=_text("GRAPHFRAMES_PACKAGE"),
+    panel = _env("PANEL_PATH")
+    panel_path = Path(panel).expanduser() if panel else None
+    if panel_path is not None and panel_path.resolve().is_relative_to(REPO_ROOT):
+        raise ValueError("PANEL_PATH points inside the repo. Keep licensed data outside it.")
+    return Settings(
+        panel_path=panel_path,
+        spark_master=_env("SPARK_MASTER") or "local[*]",
+        spark_remote=_env("SPARK_REMOTE"),
+        graphframes_package=_env("GRAPHFRAMES_PACKAGE"),
     )
-    _check_outside_repo(settings)
-    return settings
-
-
-def _check_outside_repo(settings: Settings) -> None:
-    """Refuse data paths inside the repo, so licensed data cannot be committed by mistake."""
-    for name in ("data_dir", "panel_path", "xbrl_facts_path", "bbg_cds_path"):
-        path = getattr(settings, name)
-        if path is not None and path.resolve().is_relative_to(REPO_ROOT):
-            raise ValueError(f"{name} points inside the repo. Keep licensed data outside it.")
 
 
 def require(path: Path | None, name: str) -> Path:

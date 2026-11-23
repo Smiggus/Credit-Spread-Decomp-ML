@@ -64,29 +64,16 @@ def check_manifest(parquet: Path, manifest_name: str) -> dict[str, Any]:
     return info
 
 
-def validate_panel(df: pd.DataFrame, config: dict[str, Any] | None = None) -> None:
-    """Fail if a required column is missing or a partition is unknown."""
-    cfg = panel_config(config)
-    required = list(cfg["id_columns"]) + [cfg["target"]] + feature_columns(config)
-    missing = [col for col in required if col not in df.columns]
-    if missing:
-        raise ValueError(f"Panel is missing columns: {missing}")
-    unknown = set(df["partition"].dropna().unique()) - set(ALL_PARTITIONS)
-    if unknown:
-        raise ValueError(f"Unknown partitions in the panel: {sorted(unknown)}")
-
-
 def load_panel(
     partitions: Iterable[str] | None = None,
     path: Path | None = None,
     config: dict[str, Any] | None = None,
-    check: bool = True,
 ) -> pd.DataFrame:
     """Read the panel, keep the requested partitions and return ids, target and inputs.
 
     partitions: default from ``config.yaml`` (train, gap and valid; test stays closed).
     path: default ``PANEL_PATH`` from ``.env``.
-    check: verify the file against its manifest first.
+    The file is checked against its manifest first. A missing column fails in the read.
     """
     cfg = panel_config(config)
     parts = list(partitions) if partitions is not None else list(cfg["default_partitions"])
@@ -95,12 +82,10 @@ def load_panel(
         raise ValueError(f"Unknown partitions requested: {sorted(bad)}")
 
     parquet = path or require(load_settings().panel_path, "PANEL_PATH")
-    if check:
-        check_manifest(parquet, cfg["manifest_name"])
+    check_manifest(parquet, cfg["manifest_name"])
 
     columns = list(cfg["id_columns"]) + [cfg["target"]] + feature_columns(config)
     df = pd.read_parquet(parquet, columns=columns)
-    validate_panel(df, config)
     df = df[df["partition"].isin(parts)].copy()
     df["snapshot_date"] = pd.to_datetime(df["snapshot_date"])
     return df.reset_index(drop=True)

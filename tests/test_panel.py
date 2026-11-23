@@ -7,15 +7,7 @@ import pandas as pd
 import pytest
 
 from src.config import load_config
-from src.panel import (
-    feature_columns,
-    file_sha256,
-    group_of,
-    input_groups,
-    load_panel,
-    panel_summary,
-    validate_panel,
-)
+from src.panel import feature_columns, file_sha256, group_of, input_groups, load_panel, panel_summary
 
 CATEGORIES = {
     "maturity_bucket": ["1-3y", "3-5y"],
@@ -82,10 +74,17 @@ def test_load_panel_rejects_unknown_partition(tmp_path):
         load_panel(partitions=["holdout"], path=path)
 
 
-def test_validate_panel_names_missing_columns():
-    df = synthetic_panel().drop(columns=["naive_dd"])
-    with pytest.raises(ValueError, match="naive_dd"):
-        validate_panel(df)
+def test_load_panel_needs_the_manifest(tmp_path):
+    path = write_panel(tmp_path, synthetic_panel())
+    (tmp_path / "manifest.json").unlink()
+    with pytest.raises(FileNotFoundError, match="manifest.json"):
+        load_panel(path=path)
+
+
+def test_load_panel_opens_test_only_when_asked(tmp_path):
+    path = write_panel(tmp_path, synthetic_panel())
+    df = load_panel(partitions=["test"], path=path)
+    assert set(df["partition"]) == {"test"}
 
 
 def test_panel_summary_is_totals_only():
