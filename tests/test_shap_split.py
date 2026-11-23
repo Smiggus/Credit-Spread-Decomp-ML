@@ -99,7 +99,6 @@ def test_liquidity_driven_spread_gives_liquidity_the_largest_share():
     assert shares["liquidity"] > 0.8
 
 
-@pytest.mark.skip(reason="waits for #6")
 def test_shares_sum_to_100_within_each_cut():
     from src.shap_split import fit_spread_model, group_contributions, group_shares
 
@@ -110,7 +109,17 @@ def test_shares_sum_to_100_within_each_cut():
     np.testing.assert_allclose(totals, 100, atol=1e-6)
 
 
-@pytest.mark.skip(reason="waits for #6")
+def test_shares_on_known_numbers():
+    from src.shap_split import group_shares
+
+    contribs = pd.DataFrame({"liquidity": [10.0, -30.0, 5.0], "market": [10.0, 10.0, 5.0], "base": [100.0] * 3})
+    df = pd.DataFrame({"grade_bucket": ["IG", "IG", "HY"]})
+    table = group_shares(contribs, df, by=["grade_bucket"]).set_index(["grade_bucket", "group"])
+    assert table.loc[("IG", "liquidity"), "mean_bp"] == -10  # signed mean of 10 and -30
+    assert table.loc[("IG", "liquidity"), "share_pct"] == pytest.approx(200 / 3)  # 20 of 30 absolute
+    assert table.loc[("HY", "market"), "share_pct"] == pytest.approx(50)
+
+
 def test_shares_table_has_no_identifiers():
     from src.shap_split import fit_spread_model, group_contributions, group_shares
 

@@ -6,6 +6,8 @@ data/
 *.feather
 *.pkl
 *.joblib
+# Exception: result tables of totals only (see reports/README.md).
+!reports/*.csv
 
 # Secrets
 .env

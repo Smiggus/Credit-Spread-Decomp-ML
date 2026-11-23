@@ -6,8 +6,10 @@ Milestone: [Stage a, SHAP split by input group](https://github.com/Smiggus/Credi
 
 Built on the train and valid months only. The test months stay closed until the pricer.
 
-1. **`reports/a_group_shares.csv`**. For each input group (bond terms, liquidity, company, stock and balance sheet, market): its mean contribution to the predicted spread in bp, and its share of the mean absolute contribution in %. Cut by IG and HY, by maturity bucket and by month, on the valid months. Totals only, with no bond or company identifiers.
-2. **`reports/figures/a_group_shares.png`**. The shares by month, one panel for IG and one for HY.
+1. **`reports/a_group_shares.csv`**. For each input group (bond terms, liquidity, company, stock and balance sheet, market): its mean contribution to the predicted spread in bp, and its share of the mean absolute contribution in %. Cut by IG and HY, by maturity bucket and by month, reported separately for the train months (in-sample) and the valid months (out of sample). Totals only, with no bond or company identifiers.
+2. **`reports/figures/a_group_shares.png`**. The shares by month over the train and valid months, one panel for IG and one for HY, with a line where the valid months start.
+
+Amended in #6: the valid months alone are four months, too few to show how the shares move. The train months use the same model and are marked in-sample; the split is an explanation of the fitted model, so in-sample months are informative, but accuracy claims use the valid months only.
 3. **`reports/a_drop_group.csv`**. Valid MAE in bp for IG and HY: the full model, then the model refit without each group in turn.
 
 The stage is done when:
