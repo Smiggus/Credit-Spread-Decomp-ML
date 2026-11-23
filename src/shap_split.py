@@ -49,9 +49,10 @@ def predict_spread(model: xgb.Booster, df: pd.DataFrame) -> np.ndarray:
 def group_contributions(model: xgb.Booster, df: pd.DataFrame) -> pd.DataFrame:
     """Each input group's SHAP contribution to the predicted spread, in bp, plus the ``base`` value.
 
-    Row-aligned with ``df``. For every row, the group columns plus ``base`` sum to the prediction.
+    Row-aligned with ``df``. For every row, the group columns plus ``base`` sum to the prediction,
+    up to XGBoost's float32 rounding (about 1e-6 of the spread).
     """
-    raw = model.predict(_matrix(model, df), pred_contribs=True)
+    raw = model.predict(_matrix(model, df), pred_contribs=True).astype(float)
     by_input = pd.DataFrame(raw[:, :-1], columns=model.feature_names, index=df.index)
     out = pd.DataFrame({name: by_input[cols].sum(axis=1) for name, cols in input_groups().items()})
     out["base"] = raw[:, -1]

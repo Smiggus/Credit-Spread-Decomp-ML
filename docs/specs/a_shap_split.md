@@ -18,7 +18,7 @@ The stage is done when:
 
 ## Definitions
 
-- **Contribution.** XGBoost's own SHAP values (`pred_contribs=True` on the booster), summed over the inputs of each group, in bp. For each row, the base value plus the five group contributions equals the prediction.
+- **Contribution.** XGBoost's own SHAP values (`pred_contribs=True` on the booster), summed over the inputs of each group, in bp. For each row, the base value plus the five group contributions equals the prediction, up to XGBoost's float32 rounding: about 1e-6 of the spread, 0.0012 bp at most on the real valid months.
 - **Share.** Within a cut, a group's mean absolute contribution divided by the sum of all groups' mean absolute contributions. The shares in a cut sum to 100%.
 - **Limit.** A contribution shows what the model uses, not what causes the spread. Correlated inputs, such as grade and distance to default, can trade credit between groups. The drop-group check is a second view of the same question.
 
@@ -45,7 +45,8 @@ Written before the code, on synthetic panels where the answer is known. Each is 
 |---|---|
 | `fit_spread_model` refuses rows from the test months | #4 |
 | On a synthetic panel, valid MAE beats predicting the train mean | #4 |
-| Base plus group contributions equals the prediction, to 1e-3 bp | #5 |
+| Base plus group contributions equals the prediction, within float32 rounding (relative 1e-6, absolute 1e-3 bp) | #5 |
+| A categorical input's effect lands in its own group (sector in company) | #5 |
 | When a synthetic spread depends only on the liquidity inputs, liquidity's share is above 80% | #5 |
 | Shares within each cut sum to 100% | #6 |
 | The shares table has no bond or company identifier columns | #6 |
