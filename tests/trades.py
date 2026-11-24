@@ -13,25 +13,18 @@ DAY = date(2025, 3, 3)
 SNAPSHOT = date(2025, 3, 31)  # month-end snapshot day for March 2025
 SNAPSHOTS = {"2025-03": SNAPSHOT}
 
-SCHEMA = (
-    "cusip_id string, trd_exctn_dt date, trd_seq int, rptd_pr double, par_usd double, "
-    "contra string, side string, status string, msg_seq string, orig_msg_seq string"
-)
+SCHEMA = "cusip_id string, trd_exctn_dt date, trd_seq int, msg_seq double, rptd_pr double, par_usd double"
 COLUMNS = [field.split()[0] for field in SCHEMA.split(", ")]
 
 
-def trade(cusip, day, seq, price, par_usd, contra="C", side="S", status="trade", msg_seq=None, orig_msg_seq=None):
-    """One trade report. ``contra`` C = customer, D = dealer; ``side`` B or S as reported."""
-    return {
-        "cusip_id": cusip, "trd_exctn_dt": day, "trd_seq": seq, "rptd_pr": price, "par_usd": par_usd,
-        "contra": contra, "side": side, "status": status,
-        "msg_seq": str(msg_seq if msg_seq is not None else seq),
-        "orig_msg_seq": None if orig_msg_seq is None else str(orig_msg_seq),
-    }
+def trade(cusip, day, seq, price, par_usd, msg_seq=None):
+    """One cleaned trade. ``seq`` is the execution time's order; ``msg_seq`` breaks ties (default ``seq``)."""
+    return {"cusip_id": cusip, "trd_exctn_dt": day, "trd_seq": seq,
+            "msg_seq": float(seq if msg_seq is None else msg_seq), "rptd_pr": price, "par_usd": par_usd}
 
 
 def frame(spark, rows):
-    """A Spark DataFrame of plain-named trades."""
+    """A Spark DataFrame of plain-named cleaned trades."""
     return spark.createDataFrame([tuple(row[c] for c in COLUMNS) for row in rows], schema=SCHEMA)
 
 
@@ -60,6 +53,31 @@ ZERO_TRADE = (
 
 # Snapshot day: B1's only two same-size trades are on the snapshot day, so it has no IRC.
 ON_SNAPSHOT_DAY = [trade("B1", SNAPSHOT, 1, 100.0, 5e5), trade("B1", SNAPSHOT, 2, 99.0, 5e5)]
+
+# Amihud over three days: daily values 0.01, 0.02 and 0.06. The median is 0.02; the mean would be 0.03.
+AMIHUD_DAYS = [
+    trade("B1", date(2025, 3, d), seq, p, 1e6)
+    for d, last in [(3, 101.0), (4, 102.0), (5, 106.0)] for seq, p in [(1, 100.0), (2, last)]
+]
+AMIHUD_MEDIAN = 0.02
+
+# Two trades in the same second (seq 2); the message number orders them: 100, 101, 99.
+AMIHUD_TIED = [trade("B1", DAY, 1, 100.0, 1e6, msg_seq=1), trade("B1", DAY, 2, 99.0, 1e6, msg_seq=3),
+               trade("B1", DAY, 2, 101.0, 1e6, msg_seq=2)]
+AMIHUD_TIED_EXPECTED = (0.01 + (1 - 99 / 101)) / 2
+
+# Four trades of one size on 3 March are not a roundtrip; a pair on 4 March is, with IRC 0.01.
+IRC_FOUR_AND_PAIR = (
+    [trade("B1", DAY, i, p, 5e5) for i, p in enumerate([100.0, 99.0, 98.0, 97.0], start=1)]
+    + [trade("B1", date(2025, 3, 4), 1, 100.0, 5e5), trade("B1", date(2025, 3, 4), 2, 99.0, 5e5)]
+)
+
+# Three trades are two price changes: too few for Roll.
+ROLL_SHORT = ROLL_BOUNCE[:3]
+
+# A price of 0 followed by a trade, and a trade of size 0, must not stop the run: both are dropped.
+ZERO_PRICE = IRC_DAY + [trade("B1", date(2025, 3, 4), 1, 0.0, 1e6), trade("B1", date(2025, 3, 4), 2, 100.0, 1e6),
+                        trade("B1", date(2025, 3, 5), 1, 100.0, 0.0)]
 
 # Cleaning works on WRDS columns. One report per row, in the order of WRDS_SCHEMA.
 WRDS_SCHEMA = (
