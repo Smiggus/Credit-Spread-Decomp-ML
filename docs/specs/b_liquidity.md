@@ -8,8 +8,8 @@ In stage a the five liquidity inputs (trade counts and volume on the snapshot da
 
 ## The result this stage must produce
 
-1. **Monthly liquidity measures per bond**, from cleaned trade-level TRACE Enhanced, for January 2024 to March 2026, kept outside the repo with the other licensed data.
-2. **`reports/b_liquidity_summary.csv`**: for each measure, by IG and HY and by month, the number of bonds with a value and the 25th, 50th and 75th percentiles. Totals only.
+1. **Monthly liquidity measures per bond**, from cleaned trade-level TRACE Enhanced, for the panel's bonds in its train, gap and valid months (January 2024 to November 2025), kept outside the repo with the other licensed data. The test months (to March 2026) follow with the pricer (stage f), which opens them. The cleaning counts go to `reports/b_cleaning_counts.csv`.
+2. **`reports/b_liquidity_summary.csv`**: for each measure, by IG and HY and by month, the number of bonds with a value and the 25th, 50th and 75th percentiles, left empty below 5 bonds so no single bond's value shows. Totals only.
 3. **Stage a rerun with the new measures** in the liquidity group: `reports/b_group_shares.csv` and `reports/b_drop_group.csv`, and a README table of liquidity's share and drop-group rise before and after.
 
 The stage is done when the three exist, every stage b test passes with none skipped, and the README has a results section. Extending the measures back to 2002 (#13) comes after the results and does not block them.
@@ -23,7 +23,7 @@ All are computed per bond and calendar month, from trades **before the snapshot 
 | Amihud | For each day with at least two trades, the mean of \|r_j\| / Q_j, where r_j is the price return from the previous trade that day and Q_j the trade's par volume in USD millions. Monthly value: the median over days. | Amihud (2002), in the bond form of Dick-Nielsen, Feldhütter and Lando (2012) |
 | Imputed roundtrip cost (IRC) | Two or three trades in a bond on one day with the same par volume, and no other trade of that size that day, form a roundtrip. IRC = (highest price - lowest price) / highest price. Daily value: the mean over that day's roundtrips. Monthly value: the median over days. | Feldhütter (2012), as used by Dick-Nielsen, Feldhütter and Lando (2012) |
 | Amihud risk, IRC risk | The standard deviation of the daily values within the month | Dick-Nielsen, Feldhütter and Lando (2012) |
-| Lambda | The sum of the four measures above, each standardised. The means and standard deviations come from the **train months only**, so the valid and test months do not shape the scale. Empty when any of the four is empty; a measure with no spread in the train months is refused. | Dick-Nielsen, Feldhütter and Lando (2012) |
+| Lambda | The sum of the four measures above, each standardised. The means and standard deviations come from the panel's bonds in the **train months only**, so the valid and test months do not shape the scale. Empty when any of the four is empty; a measure with no spread in the train months is refused. | Dick-Nielsen, Feldhütter and Lando (2012) |
 | Roll | 2 x sqrt(-cov(dP_j, dP_j-1)) over consecutive price changes in the month (sample covariance), in price points; 0 when the covariance is positive. At least three price changes. | Roll (1984); Bao, Pan and Wang (2011) |
 | Zero-trade share | The share of the month's trading days (days with any TRACE trade) on which the bond did not trade | Standard |
 
@@ -48,9 +48,10 @@ Empty values match each other in the joins, as in the reference code. The cleani
 ## Where things run
 
 - **Export (#9), done by the data platform.** The data platform owns the WRDS account, the export and the pipeline; this repo works with what it delivers. The platform exports `trace.trace_enhanced` and `trace.trace_btds144a_enhanced` with the read-only account to Parquet in its private raw-data bucket, under the data contract below. This repo's part of #9 is the contract and a reader that checks a delivery against it.
-- **Storage and access.** `TRACE_DIR` (in `.env`) points at the delivery. Only the Spark Connect server holds the bucket's credentials, so this repo reads the delivery through Spark and keeps no keys. The cluster writes the measures back as Parquet to `LIQUIDITY_PATH`.
+- **Storage and access.** `TRACE_DIR` (in `.env`) points at the delivery. Only the Spark Connect server holds the bucket's credentials, so this repo reads the delivery through Spark and keeps no keys. The measures, one row per panel bond and month, come back from the cluster and are written as Parquet to `LIQUIDITY_PATH`, a file outside the repo on this machine, so the pandas rerun can read them without bucket keys.
 - **Cleaning and measures (#10, #11)** run on the Spark Connect cluster, from `src/trace.py` and `src/liquidity.py`.
-- **Join and rerun (#12)** run in pandas, as stage a does: the measures are joined to the panel on bond and month, and the liquidity group in `config.yaml` gains the new columns.
+- **Join and rerun (#12)** run in pandas, as stage a does: the measures are joined to the panel on bond and month, and the liquidity group gains the measures listed under `liquidity.measures` in `config.yaml`. The panel file does not hold them, so the base groups stay as they are and `with_measures` makes the extended config for the rerun.
+- **Scripts.** `python -m scripts.b_liquidity` runs the cleaning and the measures on the cluster; `python -m scripts.b_rerun_shap` joins them and reruns stage a.
 
 ### Data contract for the TRACE delivery (#9)
 
@@ -77,7 +78,10 @@ The reader gathers each month's manifest and Spark's own row count of the month'
 | `liquidity.daily_measures(trades, snapshot_days)` | Daily Amihud and IRC per bond, trades before the snapshot day only | #11 |
 | `liquidity.monthly_measures(trades, snapshot_days)` | Every measure above per bond and month, except lambda | #11 |
 | `liquidity.add_lambda(measures, train_months)` | Standardises on the train months and adds lambda | #11 |
-| `liquidity.join_measures(panel, measures)` | Adds the measures to the panel on bond and month | #12 |
+| `liquidity.snapshot_days(panel)` | Month to the panel's snapshot day; refuses a month with two | #12 |
+| `liquidity.join_measures(panel, measures)` | Adds the measures to the panel on bond and month, keeping every row and the index; a bond with no trades in a covered month gets a zero-trade share of 1; refuses two measures rows for one bond and month | #12 |
+| `liquidity.with_measures(config)` | A copy of the config with the measures added to the liquidity group | #12 |
+| `liquidity.measure_summary(joined, measures, stratum)` | Bonds with a value and quartiles per measure, stratum and month; quartiles stay empty below 5 bonds | #12 |
 
 ## Acceptance tests (`tests/test_trace.py`, `tests/test_liquidity.py`)
 
@@ -107,7 +111,13 @@ Written before the code, on small made-up trade sets with hand-computed answers 
 | Four trades of one size on a day are not a roundtrip | #11 |
 | Roll needs three price changes | #11 |
 | A zero price or size does not stop the run | #11 |
-| Joining the measures keeps every panel row and adds the measure columns | #12 |
+| Joining the measures keeps every panel row and its index and adds the measure columns | #12 |
+| A bond with no trades gets a zero-trade share of 1 in covered months only | #12 |
+| Two measures rows for one bond and month are refused | #12 |
+| Each month has one snapshot day; two in a month are refused | #12 |
+| The measures join the liquidity group in a copy of the config | #12 |
+| The summary counts bonds with a value and gives the quartiles | #12 |
+| An input added in the config is fitted and lands in its group (stage a) | #12 |
 
 ## References
 

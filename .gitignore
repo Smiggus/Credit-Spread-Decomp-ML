@@ -9,6 +9,10 @@ data/
 # Exceptions: named result tables of totals only (see reports/README.md). Add each one by name.
 !reports/a_group_shares.csv
 !reports/a_drop_group.csv
+!reports/b_cleaning_counts.csv
+!reports/b_liquidity_summary.csv
+!reports/b_group_shares.csv
+!reports/b_drop_group.csv
 
 # Secrets
 .env

@@ -35,10 +35,11 @@ def _refuse_test_rows(df: pd.DataFrame) -> None:
 def fit_spread_model(
     train: pd.DataFrame, columns: list[str] | None = None, config: dict[str, Any] | None = None
 ) -> xgb.Booster:
-    """Fit XGBoost on the raw spread, on ``columns`` (default: all inputs). Refuses test rows."""
+    """Fit XGBoost on the raw spread, on ``columns`` (default: all inputs in ``config``). Refuses test rows."""
     _refuse_test_rows(train)
     config = config or load_config()
-    data = xgb.DMatrix(model_inputs(train, columns), label=train[config["panel"]["target"]], enable_categorical=True)
+    inputs = model_inputs(train, columns or feature_columns(config))
+    data = xgb.DMatrix(inputs, label=train[config["panel"]["target"]], enable_categorical=True)
     return xgb.train(config["spread_model"]["params"], data, num_boost_round=config["spread_model"]["rounds"])
 
 
@@ -52,15 +53,18 @@ def predict_spread(model: xgb.Booster, df: pd.DataFrame) -> np.ndarray:
     return model.predict(_matrix(model, df))
 
 
-def group_contributions(model: xgb.Booster, df: pd.DataFrame) -> pd.DataFrame:
+def group_contributions(model: xgb.Booster, df: pd.DataFrame, config: dict[str, Any] | None = None) -> pd.DataFrame:
     """Each input group's SHAP contribution to the predicted spread, in bp, plus the ``base`` value.
 
     Row-aligned with ``df``. For every row, the group columns plus ``base`` sum to the prediction,
     up to XGBoost's float32 rounding (about 1e-6 of the spread).
     """
+    if set(model.feature_names) != set(feature_columns(config)):
+        raise ValueError("The model's inputs differ from the config's input groups: pass the config it was "
+                         "fitted with.")
     raw = model.predict(_matrix(model, df), pred_contribs=True).astype(float)
     by_input = pd.DataFrame(raw[:, :-1], columns=model.feature_names, index=df.index)
-    out = pd.DataFrame({name: by_input[cols].sum(axis=1) for name, cols in input_groups().items()})
+    out = pd.DataFrame({name: by_input[cols].sum(axis=1) for name, cols in input_groups(config).items()})
     out["base"] = raw[:, -1]
     return out
 

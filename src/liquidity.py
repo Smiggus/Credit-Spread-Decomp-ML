@@ -1,16 +1,19 @@
-"""Stage b: monthly liquidity measures per bond from cleaned TRACE trades.
+"""Stage b: monthly liquidity measures per bond from cleaned TRACE trades, and their join to the panel.
 
-See docs/specs/b_liquidity.md. Input trades use the plain names from ``trace.plain_trades``:
-cusip_id, trd_exctn_dt, trd_seq (execution time), msg_seq (breaks ties within a second),
-rptd_pr, par_usd.
+See docs/specs/b_liquidity.md. The measures run on Spark; input trades use the plain names from
+``trace.plain_trades``: cusip_id, trd_exctn_dt, trd_seq (execution time), msg_seq (breaks ties
+within a second), rptd_pr, par_usd. The join to the panel and the summary run in pandas, as stage a does.
 """
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import operator
 from functools import reduce
+from typing import Any
 
+import pandas as pd
 from pyspark.sql import DataFrame, Window
 from pyspark.sql import functions as F
 
@@ -18,6 +21,7 @@ KEY = ["cusip_id", "month"]
 DAY = ["cusip_id", "month", "trd_exctn_dt"]
 ORDER = ["trd_seq", "msg_seq"]
 SCALED = ["amihud", "amihud_risk", "irc", "irc_risk"]  # the four measures lambda adds up
+MIN_BONDS = 5  # fewest bonds behind a published percentile
 
 
 def _before_snapshot(trades: DataFrame, snapshots: dict[str, dt.date]) -> DataFrame:
@@ -101,3 +105,57 @@ def add_lambda(measures: DataFrame, train_months: list[str]) -> DataFrame:
         raise ValueError(f"No spread in the train months for: {flat}")
     scaled = [(F.col(c) - stats[f"mean_{c}"]) / stats[f"sd_{c}"] for c in SCALED]
     return measures.withColumn("lambda", reduce(operator.add, scaled))
+
+
+def _months(dates: pd.Series) -> pd.Series:
+    """Each snapshot date's month as "YYYY-MM", the key the measures use."""
+    return dates.dt.strftime("%Y-%m")
+
+
+def snapshot_days(panel: pd.DataFrame) -> dict[str, dt.date]:
+    """Month ("YYYY-MM") to the panel's snapshot day in that month.
+
+    Raises ValueError if a month has more than one snapshot day, since the measures stop at one.
+    """
+    days = panel.groupby(_months(panel["snapshot_date"]))["snapshot_date"].unique()
+    several = [month for month, dates in days.items() if len(dates) > 1]
+    if several:
+        raise ValueError(f"More than one snapshot day in: {several}")
+    return {month: pd.Timestamp(dates[0]).date() for month, dates in days.items()}
+
+
+def join_measures(panel: pd.DataFrame, measures: pd.DataFrame) -> pd.DataFrame:
+    """The panel with the measures added on bond and month. Keeps every panel row and its index.
+
+    A bond with no trades before the snapshot day has no measures row. In a month the measures
+    cover (any month with at least one measures row) its zero-trade share is 1; in a month they do
+    not cover, every measure stays empty.
+    Raises ValueError if a bond has two measures rows in one month.
+    """
+    month = _months(panel["snapshot_date"])
+    joined = panel.assign(month=month).merge(measures, on=KEY, how="left", validate="many_to_one")
+    joined.index = panel.index
+    no_trades = month.isin(measures["month"]) & joined["zero_trade_share"].isna()
+    joined.loc[no_trades, "zero_trade_share"] = 1.0
+    return joined.drop(columns="month")
+
+
+def with_measures(config: dict[str, Any]) -> dict[str, Any]:
+    """A copy of ``config`` whose liquidity input group also holds the TRACE measures."""
+    extended = copy.deepcopy(config)
+    extended["panel"]["input_groups"]["liquidity"] += extended["liquidity"]["measures"]
+    return extended
+
+
+def measure_summary(joined: pd.DataFrame, measures: list[str], stratum: str) -> pd.DataFrame:
+    """For each measure, by stratum and month: the bonds with a value and the 25th, 50th and 75th
+    percentiles. Totals only, no identifiers: with fewer than ``MIN_BONDS`` bonds the percentiles
+    stay empty, since they would show single bonds' values."""
+    long = joined.assign(month=_months(joined["snapshot_date"])).melt(
+        id_vars=[stratum, "month"], value_vars=measures, var_name="measure"
+    )
+    stats = long.groupby(["measure", stratum, "month"], observed=True)["value"].describe()
+    names = {"count": "bonds", "25%": "p25", "50%": "p50", "75%": "p75"}
+    stats = stats[list(names)].rename(columns=names).reset_index().astype({"bonds": int})
+    stats.loc[stats["bonds"] < MIN_BONDS, ["p25", "p50", "p75"]] = None
+    return stats

@@ -6,7 +6,7 @@ import pytest
 
 from src.config import REPO_ROOT, ensure_outside_repo, load_settings, require
 
-ENV_NAMES = ("PANEL_PATH", "SPARK_MASTER", "SPARK_REMOTE", "GRAPHFRAMES_PACKAGE")
+ENV_NAMES = ("PANEL_PATH", "SPARK_MASTER", "SPARK_REMOTE", "GRAPHFRAMES_PACKAGE", "TRACE_DIR", "LIQUIDITY_PATH")
 
 
 def test_defaults_without_env(monkeypatch, tmp_path):
@@ -16,6 +16,16 @@ def test_defaults_without_env(monkeypatch, tmp_path):
     assert settings.spark_master == "local[*]"
     assert settings.spark_remote is None
     assert settings.panel_path is None
+    assert settings.trace_dir is None
+    assert settings.liquidity_path is None
+
+
+def test_trace_dir_stays_a_url_and_liquidity_path_is_a_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRACE_DIR", "s3a://bucket/raw")
+    monkeypatch.setenv("LIQUIDITY_PATH", "~/data/measures.parquet")
+    settings = load_settings(env_file=tmp_path / "missing.env")
+    assert settings.trace_dir == "s3a://bucket/raw"
+    assert settings.liquidity_path == Path("~/data/measures.parquet").expanduser()
 
 
 def test_blank_variable_counts_as_unset(monkeypatch, tmp_path):

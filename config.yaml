@@ -37,6 +37,11 @@ panel:
                               total_debt, leverage, naive_dd]
     market: [ust_2y_pct, ust_10y_pct, slope_2s10s_bps, hy_oas_bps, bbb_oas_bps, vix, sofr_pct]
 
+# Stage (b): the measures built from TRACE (docs/specs/b_liquidity.md). The panel does not hold them:
+# the rerun joins them on bond and month and adds them to the liquidity input group.
+liquidity:
+  measures: [zero_trade_share, amihud, amihud_risk, irc, irc_risk, roll, lambda]
+
 # Stage (b): the TRACE delivery from the data platform (TRACE_DIR in .env). See docs/specs/b_liquidity.md.
 trace:
   tables: [trace_enhanced, trace_btds144a_enhanced]
