@@ -23,7 +23,7 @@ def measures_of(spark, rows, months=None):
     """Monthly measures for made-up trades, as a dict per bond."""
     from src.liquidity import monthly_measures
 
-    table = monthly_measures(spark.createDataFrame(rows), months or T.SNAPSHOTS).toPandas()
+    table = monthly_measures(T.frame(spark, rows), months or T.SNAPSHOTS).toPandas()
     return table.set_index("cusip_id").to_dict("index")
 
 
@@ -86,27 +86,51 @@ def test_reader_refuses_a_local_path_inside_the_repo():
         read_trades(None, str(REPO_ROOT / "data" / "trace"), "trace_enhanced", ["2025-03"])
 
 
-@pytest.mark.skip(reason="waits for #10")
 def test_cancelled_trade_and_its_original_are_removed(spark):
     from src.trace import clean_trades
 
-    kept = clean_trades(spark.createDataFrame(T.CANCELLED)).toPandas()
-    assert kept["msg_seq"].tolist() == [12]
+    kept = clean_trades(T.frame(spark, T.CANCELLED)).toPandas()
+    assert kept["msg_seq"].tolist() == ["12"]
 
 
-@pytest.mark.skip(reason="waits for #10")
 def test_correction_replaces_the_original(spark):
     from src.trace import clean_trades
 
-    kept = clean_trades(spark.createDataFrame(T.CORRECTED)).toPandas()
+    kept = clean_trades(T.frame(spark, T.CORRECTED)).toPandas()
     assert kept["rptd_pr"].tolist() == [100.5]
 
 
-@pytest.mark.skip(reason="waits for #10")
 def test_interdealer_trade_is_counted_once(spark):
     from src.trace import clean_trades
 
-    assert clean_trades(spark.createDataFrame(T.INTERDEALER)).count() == 1
+    kept = clean_trades(T.frame(spark, T.INTERDEALER)).toPandas()
+    assert kept["side"].tolist() == ["S"]
+
+
+def test_reversal_and_the_trade_it_reverses_are_removed(spark):
+    from src.trace import clean_trades
+
+    kept = clean_trades(T.frame(spark, T.REVERSED)).toPandas()
+    assert kept["msg_seq"].tolist() == ["42"]
+
+
+def test_cleaning_counts_each_step(spark):
+    from src.trace import cleaning_counts
+
+    rows = T.CANCELLED + T.CORRECTED + T.INTERDEALER + T.REVERSED
+    counts = cleaning_counts(T.frame(spark, rows))
+    assert counts == {"start": 10, "cancelled": 2, "corrected": 1, "reversed": 2, "interdealer_buy_side": 1,
+                      "unknown_status": 0, "end": 4}
+
+
+def test_wrds_codes_map_to_plain_status(spark):
+    from src.trace import normalise
+
+    raw = spark.createDataFrame(T.WRDS_CODED, schema=T.WRDS_SCHEMA)
+    plain = normalise(raw).toPandas()
+    status = {seq.split(":")[1].split(".")[0]: s for seq, s in zip(plain["msg_seq"], plain["status"])}
+    assert status == T.WRDS_STATUS
+    assert plain["orig_msg_seq"].notna().sum() == 4  # only cancels and corrections point to an original
 
 
 @pytest.mark.skip(reason="waits for #11")

@@ -1,7 +1,9 @@
 """Made-up TRACE trades for tests, with hand-computed answers. No real data.
 
-Trades use the plain status names that ``trace.clean_trades`` works on (trade, cancel,
-correction, reversal); mapping the WRDS codes to these names is checked in #10.
+Most trades use the plain names that ``trace.clean_trades`` and the measures work on;
+``WRDS_CODED`` uses the WRDS column names and status codes that ``trace.normalise`` maps.
+Frames are built with an explicit schema, because Spark cannot infer the type of a column
+whose values are all empty.
 """
 
 from datetime import date
@@ -11,14 +13,26 @@ DAY = date(2025, 3, 3)
 SNAPSHOT = date(2025, 3, 31)  # month-end snapshot day for March 2025
 SNAPSHOTS = {"2025-03": SNAPSHOT}
 
+SCHEMA = (
+    "cusip_id string, trd_exctn_dt date, trd_seq int, rptd_pr double, par_usd double, "
+    "contra string, side string, status string, msg_seq string, orig_msg_seq string"
+)
+COLUMNS = [field.split()[0] for field in SCHEMA.split(", ")]
+
 
 def trade(cusip, day, seq, price, par_usd, contra="C", side="S", status="trade", msg_seq=None, orig_msg_seq=None):
     """One trade report. ``contra`` C = customer, D = dealer; ``side`` B or S as reported."""
     return {
         "cusip_id": cusip, "trd_exctn_dt": day, "trd_seq": seq, "rptd_pr": price, "par_usd": par_usd,
         "contra": contra, "side": side, "status": status,
-        "msg_seq": msg_seq if msg_seq is not None else seq, "orig_msg_seq": orig_msg_seq,
+        "msg_seq": str(msg_seq if msg_seq is not None else seq),
+        "orig_msg_seq": None if orig_msg_seq is None else str(orig_msg_seq),
     }
+
+
+def frame(spark, rows):
+    """A Spark DataFrame of plain-named trades."""
+    return spark.createDataFrame([tuple(row[c] for c in COLUMNS) for row in rows], schema=SCHEMA)
 
 
 # Amihud: one day, three trades. Returns 101/100 - 1 = 0.01 on USD 2m, and |100.5/101 - 1| on USD 1m.
@@ -61,3 +75,23 @@ INTERDEALER = [
     trade("B1", DAY, 1, 100.0, 1e6, contra="D", side="S", msg_seq=30),
     trade("B1", DAY, 1, 100.0, 1e6, contra="D", side="B", msg_seq=31),
 ]
+# A reversal, reported weeks later, repeats the trade's details and removes it.
+REVERSED = [
+    trade("B1", DAY, 5, 99.0, 2e6, msg_seq=40),
+    trade("B1", DAY, 5, 99.0, 2e6, status="reversal", msg_seq=41),
+    trade("B1", DAY, 6, 99.5, 2e6, msg_seq=42),
+]
+
+# WRDS-coded reports, one per status code, for trace.normalise.
+WRDS_SCHEMA = (
+    "cusip_id string, trd_exctn_dt date, trd_exctn_tm string, trd_rpt_dt date, rptd_pr double, "
+    "entrd_vol_qt double, rpt_side_cd string, cntra_mp_id string, trc_st string, msg_seq_nb double, "
+    "orig_msg_seq_nb double"
+)
+WRDS_CODED = [
+    ("B1", DAY, "10:00:00", DAY, 100.0, 1e6, "S", "C", code, float(seq), orig)
+    for code, seq, orig in [("T", 1, None), ("X", 2, 1.0), ("C", 3, 1.0), ("R", 4, 1.0), ("W", 5, 1.0),
+                            ("Y", 6, None), ("Q", 7, None)]
+]
+WRDS_STATUS = {"1": "trade", "2": "cancel", "3": "cancel", "4": "correction", "5": "correction",
+               "6": "reversal", "7": "unknown"}
