@@ -136,7 +136,7 @@ def test_plain_trades_renames_for_the_measures(spark):
     from src.trace import clean_trades, plain_trades
 
     plain = plain_trades(clean_trades(T.reports(spark, T.SPECIAL)))
-    assert plain.columns == ["cusip_id", "trd_exctn_dt", "trd_seq", "rptd_pr", "par_usd", "contra", "side"]
+    assert plain.columns == ["cusip_id", "trd_exctn_dt", "trd_seq", "msg_seq", "rptd_pr", "par_usd"]
 
 
 def test_amihud_on_a_hand_computed_day(spark):
@@ -162,19 +162,61 @@ def test_snapshot_day_trades_are_left_out(spark):
     # ROLL_BOUNCE trades once a day, so B1's only same-size pair on one day is on the snapshot day.
     by_bond = measures_of(spark, T.ON_SNAPSHOT_DAY + T.ROLL_BOUNCE)
     assert pd.isna(by_bond["B1"]["irc"])
+    assert by_bond["B1"]["roll"] == pytest.approx(T.ROLL_EXPECTED)  # the snapshot-day prices are not in Roll
+
+
+def lambda_rows(valid_value=2.0):
+    """Three bonds whose four Amihud and IRC measures all equal one value; two train rows, one valid."""
+    values = [("B0", "2025-01", 1.0), ("B1", "2025-01", 3.0), ("B2", "2025-08", valid_value)]
+    return [{"cusip_id": b, "month": m, **{c: v for c in ("amihud", "amihud_risk", "irc", "irc_risk")}}
+            for b, m, v in values]
+
+
+def test_lambda_on_hand_computed_numbers(spark):
+    from src.liquidity import add_lambda
+
+    by_bond = add_lambda(spark.createDataFrame(lambda_rows()), ["2025-01"]).toPandas().set_index("cusip_id")
+    # Train values 1 and 3: mean 2, sample sd sqrt(2). Each of the four measures scores -1/sqrt(2) for B0.
+    assert by_bond.loc["B0", "lambda"] == pytest.approx(-4 / 2 ** 0.5)
+    assert by_bond.loc["B2", "lambda"] == pytest.approx(0.0)
 
 
 def test_lambda_scale_comes_from_train_months_only(spark):
     from src.liquidity import add_lambda
 
-    rows = [{"cusip_id": f"B{i}", "month": m, "amihud": a, "amihud_risk": a, "irc": a, "irc_risk": a}
-            for i, (m, a) in enumerate([("2025-01", 1.0), ("2025-01", 3.0), ("2025-08", 2.0)])]
-    changed = [dict(r, amihud=100.0) if r["month"] == "2025-08" else r for r in rows]
-    base = add_lambda(spark.createDataFrame(rows), train_months=["2025-01"]).toPandas()
-    moved = add_lambda(spark.createDataFrame(changed), train_months=["2025-01"]).toPandas()
-    # Changing a valid month's value moves its own lambda but not the train months' lambdas.
+    base = add_lambda(spark.createDataFrame(lambda_rows()), ["2025-01"]).toPandas()
+    moved = add_lambda(spark.createDataFrame(lambda_rows(valid_value=100.0)), ["2025-01"]).toPandas()
     train = base["month"] == "2025-01"
     assert base.loc[train, "lambda"].tolist() == moved.loc[train, "lambda"].tolist()
+
+
+def test_lambda_refuses_a_measure_with_no_train_spread(spark):
+    from src.liquidity import add_lambda
+
+    rows = [dict(r, amihud=1.0) for r in lambda_rows()]
+    with pytest.raises(ValueError, match="amihud"):
+        add_lambda(spark.createDataFrame(rows), ["2025-01"])
+
+
+def test_amihud_is_the_median_of_daily_values(spark):
+    by_bond = measures_of(spark, T.AMIHUD_DAYS)
+    assert by_bond["B1"]["amihud"] == pytest.approx(T.AMIHUD_MEDIAN)
+
+
+def test_trades_in_the_same_second_are_ordered_by_message_number(spark):
+    assert measures_of(spark, T.AMIHUD_TIED)["B1"]["amihud"] == pytest.approx(T.AMIHUD_TIED_EXPECTED)
+
+
+def test_four_trades_of_one_size_are_not_a_roundtrip(spark):
+    assert measures_of(spark, T.IRC_FOUR_AND_PAIR)["B1"]["irc"] == pytest.approx(0.01)
+
+
+def test_roll_needs_three_price_changes(spark):
+    assert pd.isna(measures_of(spark, T.ROLL_SHORT)["B1"]["roll"])
+
+
+def test_zero_price_or_size_does_not_stop_the_run(spark):
+    assert measures_of(spark, T.ZERO_PRICE)["B1"]["irc"] == pytest.approx(T.IRC_EXPECTED)
 
 
 @pytest.mark.skip(reason="waits for #12")

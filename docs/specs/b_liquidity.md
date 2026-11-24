@@ -21,13 +21,13 @@ All are computed per bond and calendar month, from trades **before the snapshot 
 | Measure | Definition | Source |
 |---|---|---|
 | Amihud | For each day with at least two trades, the mean of \|r_j\| / Q_j, where r_j is the price return from the previous trade that day and Q_j the trade's par volume in USD millions. Monthly value: the median over days. | Amihud (2002), in the bond form of Dick-Nielsen, Feldhütter and Lando (2012) |
-| Imputed roundtrip cost (IRC) | Trades in a bond on one day with the same par volume form a roundtrip. IRC = (highest price - lowest price) / highest price. Daily value: the mean over that day's roundtrips. Monthly value: the median over days. | Feldhütter (2012), as used by Dick-Nielsen, Feldhütter and Lando (2012) |
+| Imputed roundtrip cost (IRC) | Two or three trades in a bond on one day with the same par volume, and no other trade of that size that day, form a roundtrip. IRC = (highest price - lowest price) / highest price. Daily value: the mean over that day's roundtrips. Monthly value: the median over days. | Feldhütter (2012), as used by Dick-Nielsen, Feldhütter and Lando (2012) |
 | Amihud risk, IRC risk | The standard deviation of the daily values within the month | Dick-Nielsen, Feldhütter and Lando (2012) |
-| Lambda | The sum of the four measures above, each standardised. The means and standard deviations come from the **train months only**, so the valid and test months do not shape the scale. | Dick-Nielsen, Feldhütter and Lando (2012) |
+| Lambda | The sum of the four measures above, each standardised. The means and standard deviations come from the **train months only**, so the valid and test months do not shape the scale. Empty when any of the four is empty; a measure with no spread in the train months is refused. | Dick-Nielsen, Feldhütter and Lando (2012) |
 | Roll | 2 x sqrt(-cov(dP_j, dP_j-1)) over consecutive price changes in the month (sample covariance), in price points; 0 when the covariance is positive. At least three price changes. | Roll (1984); Bao, Pan and Wang (2011) |
 | Zero-trade share | The share of the month's trading days (days with any TRACE trade) on which the bond did not trade | Standard |
 
-A bond with too few trades for a measure gets an empty value. XGBoost handles empty values, and the summary reports how many bonds have each measure.
+Trades with a zero price or size are left out. Trades executed in the same second are ordered by message number, so the order is fixed. A bond with too few trades for a measure gets an empty value; XGBoost handles empty values, and the summary reports how many bonds have each measure. A panel bond with no trades before the snapshot day gets a zero-trade share of 1 in the join (#12).
 
 The earlier plan also listed a bid-ask spread from matched customer buys and sells. IRC measures the same cost from the same trades, so it is left out.
 
@@ -73,7 +73,7 @@ The reader gathers each month's manifest and Spark's own row count of the month'
 | `trace.read_trades(spark, trace_dir, table, months)` | Gathers manifests and row counts on the cluster, runs `check_delivery`, returns those months as a Spark DataFrame. Refuses a local `trace_dir` inside the repo | #9 |
 | `trace.clean_trades(reports)` | WRDS reports in, cleaned trades out; refuses reports from before 6 February 2012 | #10 |
 | `trace.cleaning_counts(reports)` | Reports removed by each cleaning step, as totals | #10 |
-| `trace.plain_trades(cleaned)` | Renames the columns the measures use (price, par volume, side, counterparty) | #10 |
+| `trace.plain_trades(cleaned)` | Renames the columns the measures use (execution time, message number, price, par volume) | #10 |
 | `liquidity.daily_measures(trades, snapshot_days)` | Daily Amihud and IRC per bond, trades before the snapshot day only | #11 |
 | `liquidity.monthly_measures(trades, snapshot_days)` | Every measure above per bond and month, except lambda | #11 |
 | `liquidity.add_lambda(measures, train_months)` | Standardises on the train months and adds lambda | #11 |
@@ -100,7 +100,13 @@ Written before the code, on small made-up trade sets with hand-computed answers 
 | Roll: prices bouncing 100, 101, 100, 101, 100 give 2 x sqrt(4/3); a trend with positive covariance gives 0 | #11 |
 | Zero-trade share: a bond trading on two of four market days gives 0.5 | #11 |
 | Trades on the snapshot day are left out of every measure | #11 |
-| Lambda's scale comes from the train months only | #11 |
+| Lambda's scale comes from the train months only, and its value matches a hand computation | #11 |
+| Lambda refuses a measure with no spread in the train months | #11 |
+| Amihud is the median of daily values, not the mean | #11 |
+| Trades in the same second are ordered by message number | #11 |
+| Four trades of one size on a day are not a roundtrip | #11 |
+| Roll needs three price changes | #11 |
+| A zero price or size does not stop the run | #11 |
 | Joining the measures keeps every panel row and adds the measure columns | #12 |
 
 ## References

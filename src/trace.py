@@ -155,9 +155,9 @@ def cleaning_counts(reports: DataFrame) -> dict[str, int]:
 
 
 def plain_trades(cleaned: DataFrame) -> DataFrame:
-    """Cleaned trades with the plain names the measures use."""
+    """Cleaned trades with the plain names the measures use. The message number breaks ties between
+    trades executed in the same second, so the order of trades is fixed."""
     return cleaned.select(
-        "cusip_id", "trd_exctn_dt", F.col("trd_exctn_tm").alias("trd_seq"), "rptd_pr",
-        F.col("entrd_vol_qt").alias("par_usd"), F.col("cntra_mp_id").alias("contra"),
-        F.col("rpt_side_cd").alias("side"),
+        "cusip_id", "trd_exctn_dt", F.col("trd_exctn_tm").alias("trd_seq"), F.col("msg_seq_nb").alias("msg_seq"),
+        "rptd_pr", F.col("entrd_vol_qt").alias("par_usd"),
     )
