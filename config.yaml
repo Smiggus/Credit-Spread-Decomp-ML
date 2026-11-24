@@ -36,3 +36,10 @@ panel:
     stock_and_balance_sheet: [vol_20d, vol_60d, vol_252d, ret_252d, mom_12_1, beta_252d, log_market_cap,
                               total_debt, leverage, naive_dd]
     market: [ust_2y_pct, ust_10y_pct, slope_2s10s_bps, hy_oas_bps, bbb_oas_bps, vix, sofr_pct]
+
+# Stage (b): the TRACE delivery from the data platform (TRACE_DIR in .env). See docs/specs/b_liquidity.md.
+trace:
+  tables: [trace_enhanced, trace_btds144a_enhanced]
+  # WRDS columns the cleaning and the measures read; a delivery without them is refused.
+  required_columns: [cusip_id, trd_exctn_dt, trd_exctn_tm, trd_rpt_dt, rptd_pr, entrd_vol_qt, rpt_side_cd,
+                     cntra_mp_id, trc_st, msg_seq_nb, orig_msg_seq_nb]

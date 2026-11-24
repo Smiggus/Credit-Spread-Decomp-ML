@@ -49,7 +49,7 @@ The cleaning works on plain status names (trade, cancel, correction, reversal), 
 | Tables | `trace.trace_enhanced` and `trace.trace_btds144a_enhanced`, every column as WRDS serves it, no filtering or cleaning (cleaning happens here, in #10, so it is tested and visible) |
 | Window | January 2024 to March 2026 first; back to July 2002 later (#13) |
 | Layout | `<TRACE_DIR>/<table>/year=YYYY/month=MM/*.parquet`, partitioned on the trade execution date; days without trades have no file |
-| Manifest | One `_manifest.json` per month, written last: at least `table`, `month` ("YYYY-MM"), `rows`, and `columns` (name, WRDS type, Arrow type), plus the export time and the WRDS query |
+| Manifest | One `manifest.json` per month, written last: at least `table`, `month` ("YYYY-MM"), `rows`, and `columns` (name, WRDS type, Arrow type), plus the export time and the WRDS query. The name has no leading underscore because Spark skips such files, and this repo reads the manifests through Spark |
 | Types | WRDS `numeric` arrives as float64, as the `wrds` package returns it; missing values as null. Rows with no trade execution date are not exported |
 | Licence | Private bucket, no public access; no rows in messages, logs or the repo |
 
