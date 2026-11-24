@@ -54,11 +54,13 @@ def main() -> None:
     rows = panel[["cusip_id"]].assign(month=panel["snapshot_date"].dt.strftime("%Y-%m")).drop_duplicates()
     measures = monthly_measures(trades, snapshots).join(spark.createDataFrame(rows), KEY)
     train_months = sorted(snapshot_days(panel[panel["partition"] == "train"]))
+    pd.DataFrame(counts).rename_axis("step").reset_index().to_csv(REPORTS / "b_cleaning_counts.csv", index=False)
     table = add_lambda(measures, train_months).toPandas()
+    # Spark Connect puts its plan metrics in attrs, and to_parquet cannot store them as JSON.
+    table.attrs.clear()
 
     out.parent.mkdir(parents=True, exist_ok=True)
     table.to_parquet(out, index=False)
-    pd.DataFrame(counts).rename_axis("step").reset_index().to_csv(REPORTS / "b_cleaning_counts.csv", index=False)
     logger.info("Wrote %d bond-months of measures and the cleaning counts", len(table))
 
 
