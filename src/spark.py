@@ -10,7 +10,8 @@ from src.config import Settings, load_config, load_settings
 
 
 def get_spark(settings: Settings | None = None, config: dict[str, Any] | None = None) -> SparkSession:
-    """Build or reuse a Spark session, with the app name and timezone from ``config.yaml``.
+    """Build or reuse a Spark session, with the app name and timezone from ``config.yaml`` and the
+    TIME type turned on.
 
     With ``SPARK_REMOTE`` set (an ``sc://`` URL), connect to a Spark Connect server. Jars
     such as GraphFrames must then be on the server's classpath, so ``GRAPHFRAMES_PACKAGE``
@@ -28,4 +29,6 @@ def get_spark(settings: Settings | None = None, config: dict[str, Any] | None = 
         if settings.graphframes_package:
             builder = builder.config("spark.jars.packages", settings.graphframes_package)
     builder = builder.appName(spark_cfg["app_name"]).config("spark.sql.session.timeZone", spark_cfg["timezone"])
+    # The TRACE delivery stores execution and report times as Parquet TIME, which Spark reads only with this on.
+    builder = builder.config("spark.sql.timeType.enabled", "true")
     return builder.getOrCreate()

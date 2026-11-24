@@ -7,6 +7,7 @@ from src.config import Settings
 
 CONFIG = {"spark": {"app_name": "test-app", "timezone": "UTC"}}
 TIMEZONE = ("config", "spark.sql.session.timeZone", "UTC")
+TIME_TYPE = ("config", "spark.sql.timeType.enabled", "true")  # the TRACE delivery has TIME columns
 
 
 class FakeBuilder:
@@ -36,20 +37,22 @@ def settings(remote=None, package=None):
     return Settings(panel_path=None, spark_master="local[2]", spark_remote=remote, graphframes_package=package)
 
 
-def test_remote_connects_with_name_and_timezone(builder):
+def test_remote_connects_with_name_timezone_and_time_type(builder):
     src.spark.get_spark(settings(remote="sc://example:15002", package="ignored"), CONFIG)
     assert ("remote", "sc://example:15002") in builder.calls
     assert ("appName", "test-app") in builder.calls
     assert TIMEZONE in builder.calls
+    assert TIME_TYPE in builder.calls
     assert not any(call[0] == "master" or "spark.jars.packages" in call for call in builder.calls)
     assert builder.calls[-1] == ("getOrCreate",)
 
 
-def test_local_adds_graphframes_package_and_timezone(builder):
+def test_local_adds_graphframes_package_timezone_and_time_type(builder):
     src.spark.get_spark(settings(package="io.graphframes:pkg"), CONFIG)
     assert ("master", "local[2]") in builder.calls
     assert ("config", "spark.jars.packages", "io.graphframes:pkg") in builder.calls
     assert TIMEZONE in builder.calls
+    assert TIME_TYPE in builder.calls
 
 
 def test_local_without_package_adds_no_jars(builder):

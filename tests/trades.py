@@ -1,11 +1,12 @@
 """Made-up TRACE trades for tests, with hand-computed answers. No real data.
 
 The measures' trades use plain names (``frame``); the cleaning's reports use WRDS columns
-(``reports``).
+(``reports``). Execution times are TIME values, as the delivery stores them.
 Frames are built with an explicit schema, because Spark cannot infer the type of a column
 whose values are all empty.
 """
 
+import datetime as dt
 from datetime import date
 from math import sqrt
 
@@ -13,13 +14,13 @@ DAY = date(2025, 3, 3)
 SNAPSHOT = date(2025, 3, 31)  # month-end snapshot day for March 2025
 SNAPSHOTS = {"2025-03": SNAPSHOT}
 
-SCHEMA = "cusip_id string, trd_exctn_dt date, trd_seq int, msg_seq double, rptd_pr double, par_usd double"
+SCHEMA = "cusip_id string, trd_exctn_dt date, trd_seq time, msg_seq double, rptd_pr double, par_usd double"
 COLUMNS = [field.split()[0] for field in SCHEMA.split(", ")]
 
 
 def trade(cusip, day, seq, price, par_usd, msg_seq=None):
-    """One cleaned trade. ``seq`` is the execution time's order; ``msg_seq`` breaks ties (default ``seq``)."""
-    return {"cusip_id": cusip, "trd_exctn_dt": day, "trd_seq": seq,
+    """One cleaned trade, executed ``seq`` seconds after 10:00. ``msg_seq`` breaks ties (default ``seq``)."""
+    return {"cusip_id": cusip, "trd_exctn_dt": day, "trd_seq": dt.time(10, 0, seq),
             "msg_seq": float(seq if msg_seq is None else msg_seq), "rptd_pr": price, "par_usd": par_usd}
 
 
@@ -81,7 +82,7 @@ ZERO_PRICE = IRC_DAY + [trade("B1", date(2025, 3, 4), 1, 0.0, 1e6), trade("B1", 
 
 # Cleaning works on WRDS columns. One report per row, in the order of WRDS_SCHEMA.
 WRDS_SCHEMA = (
-    "cusip_id string, trd_exctn_dt date, trd_exctn_tm string, trd_rpt_dt date, rptd_pr double, "
+    "cusip_id string, trd_exctn_dt date, trd_exctn_tm time, trd_rpt_dt date, rptd_pr double, "
     "entrd_vol_qt double, rpt_side_cd string, cntra_mp_id string, trc_st string, msg_seq_nb double, "
     "orig_msg_seq_nb double, wis_fl string, spcl_trd_fl string, asof_cd string, days_to_sttl_ct double, "
     "stlmnt_dt date"
@@ -92,7 +93,7 @@ LATER = date(2025, 3, 5)  # a report date two days after the trade
 def report(msg, price=100.0, trc_st="T", orig=None, rpt_day=DAY, side="S", contra="C", time="10:00:00",
            vol=1e6, wis="N", spcl=None, asof=None, sttl_days=2.0, settle=None):
     """One WRDS trade report for bond B1 executed on DAY."""
-    return ("B1", DAY, time, rpt_day, price, vol, side, contra, trc_st, float(msg),
+    return ("B1", DAY, dt.time.fromisoformat(time), rpt_day, price, vol, side, contra, trc_st, float(msg),
             None if orig is None else float(orig), wis, spcl, asof, sttl_days, settle)
 
 
