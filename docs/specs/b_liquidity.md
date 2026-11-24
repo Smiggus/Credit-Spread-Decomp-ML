@@ -60,7 +60,7 @@ Empty values match each other in the joins, as in the reference code. The cleani
 | Window | January 2024 to March 2026 first; back to July 2002 later (#13) |
 | Layout | `<TRACE_DIR>/<table>/year=YYYY/month=MM/*.parquet`, partitioned on the trade execution date; days without trades have no file |
 | Manifest | One `manifest.json` per month, written last: at least `table`, `month` ("YYYY-MM"), `rows`, and `columns` (name, WRDS type, Arrow type), plus the export time and the WRDS query. The name has no leading underscore because Spark skips such files, and this repo reads the manifests through Spark |
-| Types | WRDS `numeric` arrives as float64, as the `wrds` package returns it; missing values as null. Rows with no trade execution date are not exported |
+| Types | WRDS `numeric` arrives as float64, as the `wrds` package returns it; missing values as null. The execution and report times (`trd_exctn_tm`, `trd_rpt_tm`) arrive as Parquet TIME, which Spark reads only with `spark.sql.timeType.enabled`, so `get_spark` turns it on (#71). Rows with no trade execution date are not exported |
 | Licence | Private bucket, no public access; no rows in messages, logs or the repo |
 
 The reader gathers each month's manifest and Spark's own row count of the month's files, on the cluster, and passes both to `check_delivery`, a plain function with no Spark or file access. It fails with a message naming the month or column when a month is missing, a row count differs from its manifest, or a column the cleaning needs is absent.
