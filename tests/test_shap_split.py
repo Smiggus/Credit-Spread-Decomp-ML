@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from scripts.a_shap_split import shares_table
+from src.config import load_config
 from src.panel import input_groups
 from src.shap_split import (
     drop_group_mae,
@@ -72,6 +73,18 @@ def test_contributions_add_up_to_the_prediction():
     assert list(contribs.columns) == list(input_groups()) + ["base"]
     # XGBoost computes contributions and predictions separately in float32.
     np.testing.assert_allclose(contribs.sum(axis=1), predict_spread(model, valid), rtol=1e-6, atol=1e-3)
+
+
+def test_an_input_added_in_the_config_lands_in_its_group():
+    config = load_config()
+    config["panel"]["input_groups"]["liquidity"] = config["panel"]["input_groups"]["liquidity"] + ["amihud"]
+    df = driven_panel(["coupon_pct"])
+    df["amihud"] = np.random.default_rng(5).normal(size=len(df))
+    df["spread_bps"] += 100 * df["amihud"]
+    train, valid = split(df)
+    model = fit_spread_model(train, config=config)
+    assert "amihud" in model.feature_names
+    assert group_contributions(model, valid, config)["liquidity"].abs().mean() > 40
 
 
 def test_a_categorical_input_lands_in_its_group():

@@ -5,10 +5,13 @@ Imports sit inside the tests so the module loads before src/trace.py and src/liq
 The tests run on Spark: the cluster when SPARK_REMOTE is set, else a local Spark.
 """
 
+from datetime import date
+
 import pandas as pd
 import pytest
 
 from tests import trades as T
+from tests.synthetic import synthetic_panel
 
 
 @pytest.fixture(name="spark", scope="module")
@@ -219,14 +222,72 @@ def test_zero_price_or_size_does_not_stop_the_run(spark):
     assert measures_of(spark, T.ZERO_PRICE)["B1"]["irc"] == pytest.approx(T.IRC_EXPECTED)
 
 
-@pytest.mark.skip(reason="waits for #12")
-def test_join_keeps_every_panel_row():
-    from src.liquidity import join_measures
-    from tests.synthetic import synthetic_panel
+def measures_table(rows):
+    """Monthly measures as the cluster brings them back: one row per bond and month."""
+    return pd.DataFrame(rows, columns=["cusip_id", "month", "zero_trade_share", "amihud"])
 
-    panel = synthetic_panel(24)
-    measures = pd.DataFrame({"cusip_id": ["C0"], "month": [panel["snapshot_date"].iloc[0].strftime("%Y-%m")],
-                             "amihud": [0.5]})
-    joined = join_measures(panel, measures)
-    assert len(joined) == len(panel)
+
+def test_join_keeps_every_panel_row_and_its_index():
+    from src.liquidity import join_measures
+
+    panel = synthetic_panel(24).set_index(pd.RangeIndex(100, 124))
+    first = panel.iloc[0]
+    joined = join_measures(panel, measures_table([(first["cusip_id"], "2024-01", 0.25, 0.5)]))
+    assert joined.index.equals(panel.index)
+    assert list(joined.columns) == list(panel.columns) + ["zero_trade_share", "amihud"]
     assert joined["amihud"].notna().sum() == 1
+    assert joined.iloc[0]["zero_trade_share"] == 0.25
+
+
+def test_a_bond_with_no_trades_gets_zero_trade_share_one_in_covered_months_only():
+    from src.liquidity import join_measures
+
+    panel = synthetic_panel(24)  # one row per month from January 2024; row 0 is bond C0
+    joined = join_measures(panel, measures_table([("C9", "2024-01", 0.5, 0.1)]))  # C0 did not trade
+    assert joined.iloc[0]["zero_trade_share"] == 1.0
+    assert pd.isna(joined.iloc[0]["amihud"])
+    assert joined.iloc[1:]["zero_trade_share"].isna().all()  # months the measures do not cover
+
+
+def test_join_refuses_two_measures_rows_for_one_bond_and_month():
+    from src.liquidity import join_measures
+
+    with pytest.raises(ValueError):
+        join_measures(synthetic_panel(4), measures_table([("C0", "2024-01", 0.5, 0.1)] * 2))
+
+
+def test_snapshot_days_gives_each_month_its_day():
+    from src.liquidity import snapshot_days
+
+    assert snapshot_days(synthetic_panel(2)) == {"2024-01": date(2024, 1, 31), "2024-02": date(2024, 2, 29)}
+
+
+def test_snapshot_days_refuses_two_days_in_one_month():
+    from src.liquidity import snapshot_days
+
+    panel = synthetic_panel(2)
+    panel.loc[1, "snapshot_date"] = pd.Timestamp("2024-01-15")
+    with pytest.raises(ValueError, match="2024-01"):
+        snapshot_days(panel)
+
+
+def test_measures_join_the_liquidity_group_in_a_copy_of_the_config():
+    from src.config import load_config
+    from src.liquidity import with_measures
+
+    config = load_config()
+    groups = with_measures(config)["panel"]["input_groups"]
+    assert groups["liquidity"] == config["panel"]["input_groups"]["liquidity"] + config["liquidity"]["measures"]
+    assert "amihud" not in config["panel"]["input_groups"]["liquidity"]
+
+
+def test_summary_counts_bonds_with_a_value_and_gives_quartiles():
+    from src.liquidity import measure_summary
+
+    joined = pd.DataFrame({"snapshot_date": pd.to_datetime(["2024-01-31"] * 5), "grade_bucket": ["IG"] * 4 + ["HY"],
+                           "amihud": [1.0, 2.0, 3.0, None, 7.0]})
+    summary = measure_summary(joined, ["amihud"], "grade_bucket")
+    assert list(summary.columns) == ["measure", "grade_bucket", "month", "bonds", "p25", "p50", "p75"]
+    by_grade = summary.set_index("grade_bucket")
+    assert by_grade.loc["IG", ["bonds", "p25", "p50", "p75"]].tolist() == [3, 1.5, 2.0, 2.5]
+    assert by_grade.loc["HY", "bonds"] == 1

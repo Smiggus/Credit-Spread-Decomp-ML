@@ -13,13 +13,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import yaml
 from dotenv import load_dotenv
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / "config.yaml"
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,8 @@ class Settings:
     spark_master: str
     spark_remote: str | None
     graphframes_package: str | None
+    trace_dir: str | None  # a URL such as s3a://..., or a local folder
+    liquidity_path: Path | None
 
 
 def _env(name: str) -> str | None:
@@ -46,12 +49,14 @@ def load_config() -> dict[str, Any]:
 def load_settings(env_file: Path | None = None) -> Settings:
     """Read machine-specific settings, loading ``.env`` from the repo root first."""
     load_dotenv(env_file or REPO_ROOT / ".env", override=False)
-    panel = _env("PANEL_PATH")
+    panel, liquidity = _env("PANEL_PATH"), _env("LIQUIDITY_PATH")
     return Settings(
         panel_path=Path(panel).expanduser() if panel else None,
         spark_master=_env("SPARK_MASTER") or "local[*]",
         spark_remote=_env("SPARK_REMOTE"),
         graphframes_package=_env("GRAPHFRAMES_PACKAGE"),
+        trace_dir=_env("TRACE_DIR"),
+        liquidity_path=Path(liquidity).expanduser() if liquidity else None,
     )
 
 
@@ -66,8 +71,8 @@ def ensure_outside_repo(path: Path, what: str) -> Path:
     return path
 
 
-def require(path: Path | None, name: str) -> Path:
-    """Return a configured path, or fail with a message naming the missing variable."""
-    if path is None:
+def require(value: T | None, name: str) -> T:
+    """Return a configured value, or fail with a message naming the missing variable."""
+    if value is None:
         raise RuntimeError(f"{name} is not set. Add it to .env (see .env.example).")
-    return path
+    return value
