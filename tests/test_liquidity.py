@@ -139,36 +139,31 @@ def test_plain_trades_renames_for_the_measures(spark):
     assert plain.columns == ["cusip_id", "trd_exctn_dt", "trd_seq", "rptd_pr", "par_usd", "contra", "side"]
 
 
-@pytest.mark.skip(reason="waits for #11")
 def test_amihud_on_a_hand_computed_day(spark):
     assert measures_of(spark, T.AMIHUD_DAY)["B1"]["amihud"] == pytest.approx(T.AMIHUD_EXPECTED)
 
 
-@pytest.mark.skip(reason="waits for #11")
 def test_irc_of_two_same_size_trades(spark):
     assert measures_of(spark, T.IRC_DAY)["B1"]["irc"] == pytest.approx(T.IRC_EXPECTED)
 
 
-@pytest.mark.skip(reason="waits for #11")
 def test_roll_on_bouncing_and_trending_prices(spark):
     assert measures_of(spark, T.ROLL_BOUNCE)["B1"]["roll"] == pytest.approx(T.ROLL_EXPECTED)
     assert measures_of(spark, T.ROLL_TREND)["B1"]["roll"] == 0
 
 
-@pytest.mark.skip(reason="waits for #11")
 def test_zero_trade_share(spark):
     by_bond = measures_of(spark, T.ZERO_TRADE)
     assert by_bond["B2"]["zero_trade_share"] == pytest.approx(0.5)
     assert by_bond["B1"]["zero_trade_share"] == 0
 
 
-@pytest.mark.skip(reason="waits for #11")
 def test_snapshot_day_trades_are_left_out(spark):
-    by_bond = measures_of(spark, T.ON_SNAPSHOT_DAY + T.AMIHUD_DAY)
-    assert pd.isna(by_bond["B1"]["irc"])  # the only same-size pair is on the snapshot day
+    # ROLL_BOUNCE trades once a day, so B1's only same-size pair on one day is on the snapshot day.
+    by_bond = measures_of(spark, T.ON_SNAPSHOT_DAY + T.ROLL_BOUNCE)
+    assert pd.isna(by_bond["B1"]["irc"])
 
 
-@pytest.mark.skip(reason="waits for #11")
 def test_lambda_scale_comes_from_train_months_only(spark):
     from src.liquidity import add_lambda
 
