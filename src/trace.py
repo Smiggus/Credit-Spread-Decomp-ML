@@ -36,7 +36,7 @@ def check_delivery(
 
 def _differing_counts(manifests: dict[str, dict[str, Any]], counts: dict[str, int], months: list[str]) -> list[str]:
     """Months whose counted rows differ from their manifest."""
-    return [month for month in months if counts.get(month) != manifests[month]["rows"]]
+    return [month for month in months if counts.get(month, 0) != manifests[month]["rows"]]
 
 
 def _absent_columns(manifests: dict[str, dict[str, Any]], months: list[str], required: list[str]) -> dict:
@@ -57,10 +57,13 @@ def read_trades(
     required = (config or load_config())["trace"]["required_columns"]
     root = f"{trace_dir.rstrip('/')}/{table}"
 
-    found = spark.read.json(f"{root}/year=*/month=*/_manifest.json", multiLine=True).collect()
+    # Spark skips files whose names start with "_" or ".", so the manifest is manifest.json, and the
+    # trades are read with a *.parquet filter so the manifests stay out of the scan.
+    found = spark.read.json(f"{root}/year=*/month=*/manifest.json", multiLine=True).collect()
     manifests = {row["month"]: row.asDict(recursive=True) for row in found}
-    trades = spark.read.parquet(root).withColumn("month", F.format_string("%04d-%02d", "year", "month"))
-    trades = trades.drop("year").filter(F.col("month").isin(months))
+    trades = spark.read.option("pathGlobFilter", "*.parquet").parquet(root)
+    month = F.concat_ws("-", F.col("year").cast("string"), F.lpad(F.col("month").cast("string"), 2, "0"))
+    trades = trades.withColumn("month", month).drop("year").filter(F.col("month").isin(months))
     counts = {row["month"]: row["count"] for row in trades.groupBy("month").count().collect()}
     check_delivery(manifests, counts, months, required)
     return trades

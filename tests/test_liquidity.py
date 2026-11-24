@@ -42,6 +42,12 @@ def test_check_accepts_a_complete_delivery():
     check_delivery(manifests, {"2025-03": 2, "2025-04": 2}, ["2025-03", "2025-04"], REQUIRED)
 
 
+def test_check_accepts_an_empty_month_with_no_files():
+    from src.trace import check_delivery
+
+    check_delivery({"2025-03": manifest("2025-03", 0)}, {}, ["2025-03"], REQUIRED)
+
+
 def test_check_names_a_missing_month():
     from src.trace import check_delivery
 
