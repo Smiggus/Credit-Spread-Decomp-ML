@@ -42,4 +42,5 @@ trace:
   tables: [trace_enhanced, trace_btds144a_enhanced]
   # WRDS columns the cleaning and the measures read; a delivery without them is refused.
   required_columns: [cusip_id, trd_exctn_dt, trd_exctn_tm, trd_rpt_dt, rptd_pr, entrd_vol_qt, rpt_side_cd,
-                     cntra_mp_id, trc_st, msg_seq_nb, orig_msg_seq_nb]
+                     cntra_mp_id, trc_st, msg_seq_nb, orig_msg_seq_nb, wis_fl, spcl_trd_fl, asof_cd,
+                     days_to_sttl_ct, stlmnt_dt]

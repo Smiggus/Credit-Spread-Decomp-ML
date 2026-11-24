@@ -61,37 +61,41 @@ ZERO_TRADE = (
 # Snapshot day: B1's only two same-size trades are on the snapshot day, so it has no IRC.
 ON_SNAPSHOT_DAY = [trade("B1", SNAPSHOT, 1, 100.0, 5e5), trade("B1", SNAPSHOT, 2, 99.0, 5e5)]
 
-# Cleaning.
-CANCELLED = [
-    trade("B1", DAY, 1, 100.0, 1e6, msg_seq=10),
-    trade("B1", DAY, 2, 100.0, 1e6, status="cancel", msg_seq=11, orig_msg_seq=10),
-    trade("B1", DAY, 3, 101.0, 1e6, msg_seq=12),
-]
-CORRECTED = [
-    trade("B1", DAY, 1, 100.0, 1e6, msg_seq=20),
-    trade("B1", DAY, 2, 100.5, 1e6, status="correction", msg_seq=21, orig_msg_seq=20),
-]
-INTERDEALER = [
-    trade("B1", DAY, 1, 100.0, 1e6, contra="D", side="S", msg_seq=30),
-    trade("B1", DAY, 1, 100.0, 1e6, contra="D", side="B", msg_seq=31),
-]
-# A reversal, reported weeks later, repeats the trade's details and removes it.
-REVERSED = [
-    trade("B1", DAY, 5, 99.0, 2e6, msg_seq=40),
-    trade("B1", DAY, 5, 99.0, 2e6, status="reversal", msg_seq=41),
-    trade("B1", DAY, 6, 99.5, 2e6, msg_seq=42),
-]
-
-# WRDS-coded reports, one per status code, for trace.normalise.
+# Cleaning works on WRDS columns. One report per row, in the order of WRDS_SCHEMA.
 WRDS_SCHEMA = (
     "cusip_id string, trd_exctn_dt date, trd_exctn_tm string, trd_rpt_dt date, rptd_pr double, "
     "entrd_vol_qt double, rpt_side_cd string, cntra_mp_id string, trc_st string, msg_seq_nb double, "
-    "orig_msg_seq_nb double"
+    "orig_msg_seq_nb double, wis_fl string, spcl_trd_fl string, asof_cd string, days_to_sttl_ct double, "
+    "stlmnt_dt date"
 )
-WRDS_CODED = [
-    ("B1", DAY, "10:00:00", DAY, 100.0, 1e6, "S", "C", code, float(seq), orig)
-    for code, seq, orig in [("T", 1, None), ("X", 2, 1.0), ("C", 3, 1.0), ("R", 4, 1.0), ("W", 5, 1.0),
-                            ("Y", 6, None), ("Q", 7, None)]
+LATER = date(2025, 3, 5)  # a report date two days after the trade
+
+
+def report(msg, price=100.0, trc_st="T", orig=None, rpt_day=DAY, side="S", contra="C", time="10:00:00",
+           vol=1e6, wis="N", spcl=None, asof=None, sttl_days=2.0):
+    """One WRDS trade report for bond B1 executed on DAY."""
+    return ("B1", DAY, time, rpt_day, price, vol, side, contra, trc_st, float(msg),
+            None if orig is None else float(orig), wis, spcl, asof, sttl_days, None)
+
+
+def reports(spark, rows):
+    """A Spark DataFrame of WRDS trade reports."""
+    return spark.createDataFrame(rows, schema=WRDS_SCHEMA)
+
+
+# A cancel (X) reported two days later repeats the message number and details of the trade it removes.
+CANCELLED_LATER = [report(10), report(10, trc_st="X", rpt_day=LATER), report(12, price=101.0, time="11:00:00")]
+# A correction: the old version is cancelled (C, same message number and details) and the new one (R) stays.
+CORRECTED = [report(20), report(20, trc_st="C", rpt_day=LATER), report(21, price=100.5, trc_st="R", rpt_day=LATER)]
+# Two identical trades; a reversal (Y) weeks later points to one of them through orig_msg_seq_nb.
+REVERSED_TWIN = [report(40), report(41), report(50, trc_st="Y", orig=40, rpt_day=date(2025, 4, 1))]
+# Interdealer: a dealer sell and the matching dealer buy (one trade), a dealer buy with no matching sell,
+# and a buy report with no counterparty code.
+INTERDEALER = [
+    report(30, contra="D", side="S"), report(31, contra="D", side="B"),
+    report(32, contra="D", side="B", price=99.0, time="12:00:00"), report(33, contra=None, side="B", time="13:00:00"),
 ]
-WRDS_STATUS = {"1": "trade", "2": "cancel", "3": "cancel", "4": "correction", "5": "correction",
-               "6": "reversal", "7": "unknown"}
+# Dropped by the last step: when-issued, special, as-of, and settling 10 days after execution.
+SPECIAL = [report(60), report(61, wis="Y"), report(62, spcl="S"), report(63, asof="A"), report(64, sttl_days=10.0)]
+# Reported before the 2012 platform change.
+OLD_PLATFORM = [report(70, rpt_day=date(2011, 6, 1))]

@@ -1,4 +1,4 @@
-"""TRACE trades from the data platform's delivery: check, read, map and clean them.
+"""TRACE trades from the data platform's delivery: check, read and clean them.
 
 See docs/specs/b_liquidity.md. The delivery is read through Spark: only the Spark Connect
 server holds the bucket's credentials, so this machine keeps no keys.
@@ -6,6 +6,7 @@ server holds the bucket's credentials, so this machine keeps no keys.
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 from typing import Any, Callable
 
@@ -14,9 +15,11 @@ from pyspark.sql import functions as F
 
 from src.config import ensure_outside_repo, load_config
 
-# WRDS trade status codes. From February 2012: T trade, X cancel, C cancelled correction,
-# R new correction, Y reversal. Before: T trade, C cancellation, W correction.
-STATUS = {"T": "trade", "X": "cancel", "C": "cancel", "R": "correction", "W": "correction", "Y": "reversal"}
+# TRACE moved to a new platform on this date and changed its status codes. The cleaning below
+# follows the rules from this date on; earlier reports wait for #13.
+NEW_PLATFORM = dt.date(2012, 2, 6)
+# The trade details a cancel or reversal must share with the trade it removes.
+DETAILS = ["cusip_id", "entrd_vol_qt", "rptd_pr", "rpt_side_cd", "cntra_mp_id", "trd_exctn_dt", "trd_exctn_tm"]
 
 
 def check_delivery(
@@ -73,78 +76,88 @@ def read_trades(
     return trades
 
 
-def normalise(raw: DataFrame) -> DataFrame:
-    """WRDS columns and status codes to the plain names the cleaning and measures use.
-
-    Message sequence numbers are unique only within a report date, so they are keyed on it.
-    An unknown status code becomes "unknown" and is dropped by the cleaning.
-    """
-    codes = F.create_map(*[F.lit(x) for pair in STATUS.items() for x in pair])
-    status = F.coalesce(codes[F.col("trc_st")], F.lit("unknown"))
-    orig = F.when(F.col("orig_msg_seq_nb").isNotNull(), F.concat_ws(":", "trd_rpt_dt", "orig_msg_seq_nb"))
-    return raw.select(
-        "cusip_id", "trd_exctn_dt", F.col("trd_exctn_tm").alias("trd_seq"), "rptd_pr",
-        F.col("entrd_vol_qt").alias("par_usd"), F.col("cntra_mp_id").alias("contra"),
-        F.col("rpt_side_cd").alias("side"), status.alias("status"),
-        F.concat_ws(":", "trd_rpt_dt", "msg_seq_nb").alias("msg_seq"), orig.alias("orig_msg_seq"),
-    )
+def _anti_join(trades: DataFrame, removers: DataFrame, keys: list[str]) -> DataFrame:
+    """Trades with no match in ``removers`` on ``keys``. Empty values match each other."""
+    left, right = trades.alias("trades"), removers.select(*keys).distinct().alias("removers")
+    condition = [F.col(f"trades.{key}").eqNullSafe(F.col(f"removers.{key}")) for key in keys]
+    return left.join(right, condition, "left_anti")
 
 
-def _drop_cancelled(trades: DataFrame) -> DataFrame:
-    """Remove cancel reports and the reports they cancel."""
-    cancelled = trades.filter(F.col("status") == "cancel").select("cusip_id", F.col("orig_msg_seq").alias("msg_seq"))
-    return trades.filter(F.col("status") != "cancel").join(cancelled, ["cusip_id", "msg_seq"], "left_anti")
+def _keep_trade_reports(trades: DataFrame, _reports: DataFrame) -> DataFrame:
+    """Keep trade reports (T) and corrections (R, the corrected version of a trade)."""
+    return trades.filter(F.col("trc_st").isin("T", "R"))
 
 
-def _apply_corrections(trades: DataFrame) -> DataFrame:
-    """Remove the reports that a correction replaces; the correction stays as the trade."""
-    replaced = trades.filter(F.col("status") == "correction").select(
-        "cusip_id", F.col("orig_msg_seq").alias("msg_seq")
-    )
-    return trades.join(replaced, ["cusip_id", "msg_seq"], "left_anti")
+def _drop_cancelled(trades: DataFrame, reports: DataFrame) -> DataFrame:
+    """A cancel (X) or cancelled correction (C) carries the message number and details of the
+    trade it removes."""
+    return _anti_join(trades, reports.filter(F.col("trc_st").isin("X", "C")), DETAILS + ["msg_seq_nb"])
 
 
-def _drop_reversed(trades: DataFrame) -> DataFrame:
-    """Remove reversals and the trades they reverse, matched on the trade's details."""
-    keys = ["cusip_id", "trd_exctn_dt", "trd_seq", "rptd_pr", "par_usd", "side", "contra"]
-    reversed_ = trades.filter(F.col("status") == "reversal").select(*keys).distinct()
-    return trades.filter(F.col("status") != "reversal").join(reversed_, keys, "left_anti")
+def _drop_reversed(trades: DataFrame, reports: DataFrame) -> DataFrame:
+    """A reversal (Y) points to the trade it removes through its original message number."""
+    reversals = reports.filter(F.col("trc_st") == "Y").withColumn("msg_seq_nb", F.col("orig_msg_seq_nb"))
+    return _anti_join(trades, reversals, DETAILS + ["msg_seq_nb"])
 
 
-def _drop_interdealer_buys(trades: DataFrame) -> DataFrame:
-    """Both dealers report an interdealer trade; keep the seller's report only."""
-    return trades.filter(~((F.col("contra") == "D") & (F.col("side") == "B")))
+def _drop_interdealer_buys(trades: DataFrame, _reports: DataFrame) -> DataFrame:
+    """Both dealers report an interdealer trade. Drop a dealer's buy report when a dealer sell
+    report matches it on bond, day, volume and price."""
+    dealer = F.col("cntra_mp_id").eqNullSafe("D")
+    dealer_buy = dealer & F.col("rpt_side_cd").eqNullSafe("B")
+    sells = trades.filter(dealer & F.col("rpt_side_cd").eqNullSafe("S"))
+    buys = _anti_join(trades.filter(dealer_buy), sells, ["cusip_id", "trd_exctn_dt", "entrd_vol_qt", "rptd_pr"])
+    return trades.filter(~dealer_buy).unionByName(buys)
 
 
-def _drop_unknown(trades: DataFrame) -> DataFrame:
-    """Remove reports whose status code is not recognised."""
-    return trades.filter(F.col("status").isin("trade", "correction"))
+def _drop_special(trades: DataFrame, _reports: DataFrame) -> DataFrame:
+    """Drop when-issued, special and as-of trades, and trades settling more than 7 days after execution."""
+    blank = [F.col(c).isNull() | (F.col(c) == "") for c in ("spcl_trd_fl", "asof_cd")]
+    settles = F.col("stlmnt_dt").isNull() | (F.datediff("stlmnt_dt", "trd_exctn_dt") <= 7)
+    days = F.col("days_to_sttl_ct").isNull() | (F.col("days_to_sttl_ct") <= 7)
+    return trades.filter((F.col("wis_fl") == "N") & blank[0] & blank[1] & settles & days)
 
 
-STEPS: dict[str, Callable[[DataFrame], DataFrame]] = {
+STEPS: dict[str, Callable[[DataFrame, DataFrame], DataFrame]] = {
+    "not_a_trade_report": _keep_trade_reports,
     "cancelled": _drop_cancelled,
-    "corrected": _apply_corrections,
     "reversed": _drop_reversed,
     "interdealer_buy_side": _drop_interdealer_buys,
-    "unknown_status": _drop_unknown,
+    "special_or_late": _drop_special,
 }
 
 
-def clean_trades(trades: DataFrame) -> DataFrame:
-    """Dick-Nielsen's Enhanced TRACE filter on plain-named trades, step by step."""
+def _refuse_old_platform(reports: DataFrame) -> None:
+    if reports.filter(F.col("trd_rpt_dt") < F.lit(NEW_PLATFORM)).limit(1).count():
+        raise ValueError("Reports from before 6 February 2012 follow other rules, which come with #13.")
+
+
+def clean_trades(reports: DataFrame) -> DataFrame:
+    """Dick-Nielsen's filter for Enhanced TRACE reported from 6 February 2012 on, on WRDS columns."""
+    _refuse_old_platform(reports)
+    trades = reports
     for step in STEPS.values():
-        trades = step(trades)
+        trades = step(trades, reports)
     return trades
 
 
-def cleaning_counts(trades: DataFrame) -> dict[str, int]:
+def cleaning_counts(reports: DataFrame) -> dict[str, int]:
     """Reports removed by each cleaning step, plus the reports at the start and the end. Totals only."""
-    counts = {"start": trades.count()}
-    before = counts["start"]
+    _refuse_old_platform(reports)
+    counts = {"start": reports.count()}
+    trades, before = reports, counts["start"]
     for name, step in STEPS.items():
-        trades = step(trades)
+        trades = step(trades, reports)
         after = trades.count()
-        counts[name] = before - after
-        before = after
+        counts[name], before = before - after, after
     counts["end"] = before
     return counts
+
+
+def plain_trades(cleaned: DataFrame) -> DataFrame:
+    """Cleaned trades with the plain names the measures use."""
+    return cleaned.select(
+        "cusip_id", "trd_exctn_dt", F.col("trd_exctn_tm").alias("trd_seq"), "rptd_pr",
+        F.col("entrd_vol_qt").alias("par_usd"), F.col("cntra_mp_id").alias("contra"),
+        F.col("rpt_side_cd").alias("side"),
+    )
