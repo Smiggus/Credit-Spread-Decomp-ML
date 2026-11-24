@@ -37,10 +37,10 @@ Dick-Nielsen's filter for Enhanced TRACE, as ported in Tidy Finance's `clean_enh
 
 | Step | Rule |
 |---|---|
-| Trade reports | Keep T and R reports. R is the corrected version of a trade. |
+| Trade reports | Keep T and R reports with a report date. R is the corrected version of a trade. |
 | Cancels | An X or C report carries the same `msg_seq_nb` and trade details as the report it removes. Remove the trade matching on `msg_seq_nb` and the details: bond, volume, price, side, counterparty, execution date and time. No report date is used, so a cancel reported days later still finds its trade. |
 | Reversals | A Y report's `orig_msg_seq_nb` is the `msg_seq_nb` of the trade it removes; match on that and the same details. Only that trade goes, even if an identical trade exists. |
-| Interdealer trades | Both dealers report the trade. Drop a dealer buy report when a dealer sell report matches it on bond, execution date, volume and price; keep unmatched dealer buys. |
+| Interdealer trades | Both dealers report the trade. Keep customer trades, dealer sells, and dealer buys that no dealer sell matches on bond, execution date, volume and price. A report with no counterparty code goes. |
 | Special and late | Keep only `wis_fl = N` (not when-issued), no special trade flag, no as-of flag, and settlement at most 7 days after execution. |
 
 Empty values match each other in the joins, as in the reference code. The cleaning reports how many reports each step removes, as totals.
@@ -88,11 +88,11 @@ Written before the code, on small made-up trade sets with hand-computed answers 
 | The check accepts a complete delivery | #9 |
 | The check names a missing month, a month whose row count differs from its manifest, and a missing column | #9 |
 | The reader refuses a local path inside the repo | #9 |
-| A cancel reported two days later removes its trade | #10 |
+| A cancel reported two days later removes its trade and not an identical twin | #10 |
 | A correction replaces the old version | #10 |
 | A reversal removes only the trade it points to, not an identical twin | #10 |
-| A dealer buy is dropped only when a matching dealer sell exists; a report with no counterparty is kept | #10 |
-| When-issued, special, as-of and late-settling trades are dropped | #10 |
+| A dealer buy is dropped only when a matching dealer sell exists (a matching customer sell does not count); a report with no counterparty goes | #10 |
+| When-issued, special, as-of and late-settling trades are dropped, by day count and by settlement date | #10 |
 | Reports from before 2012 are refused | #10 |
 | Each step's removals are counted | #10 |
 | Amihud on a hand-computed day | #11 |

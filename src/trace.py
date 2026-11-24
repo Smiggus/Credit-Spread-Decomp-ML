@@ -84,8 +84,8 @@ def _anti_join(trades: DataFrame, removers: DataFrame, keys: list[str]) -> DataF
 
 
 def _keep_trade_reports(trades: DataFrame, _reports: DataFrame) -> DataFrame:
-    """Keep trade reports (T) and corrections (R, the corrected version of a trade)."""
-    return trades.filter(F.col("trc_st").isin("T", "R"))
+    """Keep trade reports (T) and corrections (R, the corrected version of a trade) that have a report date."""
+    return trades.filter(F.col("trc_st").isin("T", "R") & F.col("trd_rpt_dt").isNotNull())
 
 
 def _drop_cancelled(trades: DataFrame, reports: DataFrame) -> DataFrame:
@@ -101,13 +101,13 @@ def _drop_reversed(trades: DataFrame, reports: DataFrame) -> DataFrame:
 
 
 def _drop_interdealer_buys(trades: DataFrame, _reports: DataFrame) -> DataFrame:
-    """Both dealers report an interdealer trade. Drop a dealer's buy report when a dealer sell
-    report matches it on bond, day, volume and price."""
+    """Both dealers report an interdealer trade. Keep customer trades, dealer sells, and dealer
+    buys that no dealer sell matches on bond, day, volume and price. Anything else goes."""
     dealer = F.col("cntra_mp_id").eqNullSafe("D")
-    dealer_buy = dealer & F.col("rpt_side_cd").eqNullSafe("B")
     sells = trades.filter(dealer & F.col("rpt_side_cd").eqNullSafe("S"))
-    buys = _anti_join(trades.filter(dealer_buy), sells, ["cusip_id", "trd_exctn_dt", "entrd_vol_qt", "rptd_pr"])
-    return trades.filter(~dealer_buy).unionByName(buys)
+    buys = _anti_join(trades.filter(dealer & F.col("rpt_side_cd").eqNullSafe("B")), sells,
+                      ["cusip_id", "trd_exctn_dt", "entrd_vol_qt", "rptd_pr"])
+    return trades.filter(F.col("cntra_mp_id").eqNullSafe("C")).unionByName(sells).unionByName(buys)
 
 
 def _drop_special(trades: DataFrame, _reports: DataFrame) -> DataFrame:
@@ -122,7 +122,7 @@ STEPS: dict[str, Callable[[DataFrame, DataFrame], DataFrame]] = {
     "not_a_trade_report": _keep_trade_reports,
     "cancelled": _drop_cancelled,
     "reversed": _drop_reversed,
-    "interdealer_buy_side": _drop_interdealer_buys,
+    "interdealer": _drop_interdealer_buys,
     "special_or_late": _drop_special,
 }
 

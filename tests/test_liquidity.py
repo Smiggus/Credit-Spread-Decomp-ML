@@ -94,7 +94,7 @@ def kept_messages(spark, rows):
 
 
 def test_a_cancel_reported_days_later_removes_its_trade(spark):
-    assert kept_messages(spark, T.CANCELLED_LATER) == [12]
+    assert kept_messages(spark, T.CANCELLED_LATER) == [11, 12]
 
 
 def test_a_correction_replaces_the_old_version(spark):
@@ -108,12 +108,12 @@ def test_a_reversal_removes_only_the_trade_it_points_to(spark):
     assert kept_messages(spark, T.REVERSED_TWIN) == [41]
 
 
-def test_interdealer_buy_dropped_only_when_a_matching_sell_exists(spark):
-    assert kept_messages(spark, T.INTERDEALER) == [30, 32, 33]
+def test_interdealer_buy_dropped_only_when_a_matching_dealer_sell_exists(spark):
+    assert kept_messages(spark, T.INTERDEALER) == [30, 32, 34]
 
 
 def test_special_and_late_settling_trades_are_dropped(spark):
-    assert kept_messages(spark, T.SPECIAL) == [60]
+    assert kept_messages(spark, T.SPECIAL) == [60, 66]
 
 
 def test_reports_from_before_2012_are_refused(spark):
@@ -128,8 +128,8 @@ def test_cleaning_counts_each_step(spark):
 
     rows = T.CANCELLED_LATER + T.CORRECTED + T.REVERSED_TWIN + T.INTERDEALER + T.SPECIAL
     counts = cleaning_counts(T.reports(spark, rows))
-    assert counts == {"start": 18, "not_a_trade_report": 3, "cancelled": 2, "reversed": 1,
-                      "interdealer_buy_side": 1, "special_or_late": 4, "end": 7}
+    assert counts == {"start": 23, "not_a_trade_report": 4, "cancelled": 2, "reversed": 1,
+                      "interdealer": 2, "special_or_late": 5, "end": 9}
 
 
 def test_plain_trades_renames_for_the_measures(spark):
