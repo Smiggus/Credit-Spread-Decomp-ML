@@ -50,6 +50,8 @@ A company-month with no debt gets a spread of 0. One with a missing input, or wh
 
 Huang and Huang (2012) pick each rating's asset volatility so that the model's default probability matches the historical default rate, then compute the spread. This stage uses the shorter route of Chen, Collin-Dufresne and Goldstein (2009): in the Merton model, the default probability under the pricing measure is the historical one shifted by the asset Sharpe ratio lambda, so the historical default rate and lambda give the spread without solving for volatility. The panel has only IG and HY (`grade_bucket`), not letter ratings, so the calibration is by IG and HY and maturity, against the published cumulative default rates of investment-grade and speculative-grade issuers.
 
+Letter ratings would be better. Default rates rise steeply from A to BBB to BB to B, and the spread is not linear in the default rate, so one IG-wide rate misprices both ends of IG. The data platform is scoping a source of dated issue-level ratings (the agencies' public rating histories under SEC Rule 17g-7(b)). If it arrives, #15 calibrates each rating against that rating's published default rates, and the IG and HY results become the bond-weighted totals of the ratings in each. The table of default rates is keyed by bucket, so the same functions serve both.
+
 - PD_Q(T) = N( N^-1(PD_P(T)) + lambda sqrt(T) )
 - s(T) = -(1 / T) ln( 1 - PD_Q(T) (1 - R) )
 
