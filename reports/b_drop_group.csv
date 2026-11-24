@@ -1,0 +1,13 @@
+left_out,grade_bucket,mae_bp
+none,HY,48.26
+none,IG,14.63
+bond_terms,HY,50.94
+bond_terms,IG,18.97
+liquidity,HY,50.74
+liquidity,IG,15.03
+company,HY,49.37
+company,IG,14.58
+stock_and_balance_sheet,HY,53.88
+stock_and_balance_sheet,IG,15.84
+market,HY,50.12
+market,IG,16.70
