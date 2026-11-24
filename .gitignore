@@ -13,6 +13,8 @@ data/
 !reports/b_liquidity_summary.csv
 !reports/b_group_shares.csv
 !reports/b_drop_group.csv
+!reports/c_merton.csv
+!reports/c_merton_coverage.csv
 
 # Secrets
 .env

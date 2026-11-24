@@ -44,7 +44,7 @@ The bond's model spread then uses the solved V and sigma_V with the bond's own m
 
 s = -(1 / T_b) ln( N(d2) + V / (F exp(-r_b T_b)) N(-d1) ), in bp.
 
-A company-month with no debt gets a spread of 0. One with a missing input, or where the solver does not converge, gets an empty spread, and the count of each goes in the report.
+A company-month with no debt gets a spread of 0. One with a missing or out-of-range input, or where the solver does not converge, gets an empty spread, as does a bond with no ticker, rate or positive maturity. The report counts the bond-months by outcome, and the counts add up to the rows.
 
 ## Merton calibrated to historical default rates (#15)
 
@@ -145,7 +145,7 @@ The common part is the level the residual model cannot pin on either group. It i
 
 - **Export (#16, #17), done by the data platform.** The platform exports the WRDS tables below with the read-only account, under the same contract as the TRACE delivery: Parquet in its private bucket, one `manifest.json` per table (or per year for the daily file) with the row count, the columns and the WRDS query. A pull runs only after the owner's go-ahead.
 - **Storage.** `COMPANY_DATA_DIR` (in `.env`) points at the delivery. The repo reads it through Spark, checks it against the manifests, selects the columns it needs, and writes them as Parquet to `COMPANY_CACHE_DIR`, a folder outside the repo on this machine. Everything after that runs in pandas.
-- **Merton (#14, #15)** runs in pandas on the panel and needs no new data.
+- **Merton (#14, #15)** runs in pandas on the panel and needs no new data: `python -m scripts.c_merton` writes `reports/c_merton.csv` and `reports/c_merton_coverage.csv` (bond-months by outcome).
 
 ### Data contract for the company data (#16, #17)
 
@@ -169,7 +169,10 @@ Window: January 1980 to the latest month on WRDS. Every column as WRDS serves it
 |---|---|---|
 | `merton.solve_assets(equity, equity_vol, debt, rate, horizon=1.0)` | V and sigma_V for one company-month; empty when an input is missing or the solver fails; V = E and sigma_V = 0 with no debt | #14 |
 | `merton.model_spread(assets, asset_vol, debt, rate, maturity)` | The bond's Merton spread in bp | #14 |
-| `merton.panel_spreads(panel)` | Solves each company-month once and adds `merton_spread_bps` to every bond row; returns the counts of empty rows by reason | #14 |
+| `merton.continuous_rate(yield_pct)` | A yield in percent with semiannual compounding as a continuous rate | #14 |
+| `merton.panel_spreads(panel)` | Solves each company-month once and adds `merton_spread_bps` to every bond row, priced against that company-month's debt; bonds with no ticker are left empty; returns the bond-months by outcome, which add up to the rows | #14 |
+| `merton.merton_summary(frame, models)` | Each model's mean and quartiles against the observed spread, and its default share, by partition, grade and maturity; values left empty below 5 companies, where one company holds over half the rows, and in a partner cell so a blank cell cannot be worked out from its grade's total | #14 |
+| `panel.load_panel(..., extra_columns)` | Reads panel columns that are not model inputs, such as `ust_yield_at_maturity_pct` | #14 |
 | `merton.risk_neutral_pd(pd, sharpe, maturity)` | PD_Q from PD_P | #15 |
 | `merton.calibrated_spread(pd, sharpe, maturity, recovery)` | The calibrated spread in bp | #15 |
 | `merton.default_rate(table, bucket, maturity)` | The cumulative default rate at a maturity, interpolated; refuses one past the table | #15 |
@@ -201,6 +204,20 @@ Written before the code and skipped until their issue is done. Imports sit insid
 | The spread rises with debt and with asset volatility | #14 |
 | No debt gives a spread of 0; a missing input gives an empty spread, not an error | #14 |
 | Each company-month is solved once, and every bond of it gets its own maturity's spread | #14 |
+| Yields in percent become continuous rates | #14 |
+| A maturity of zero or less gives an empty spread | #14 |
+| The spread is computed for whole columns as for single numbers | #14 |
+| A company-month with no solution is counted apart from one with a missing input | #14 |
+| Problem bonds (no ticker, a missing or zero maturity, zero volatility, no debt with a missing input) are left empty, the index is kept, and the counts add up | #14 |
+| Bonds with no ticker are not priced as one company | #14 |
+| A solver failure or a large residual gives an empty result | #14 |
+| A tiny spread at low leverage is not rounding noise | #14 |
+| The summary gives the means, quartiles and default share per cell | #14 |
+| The summary empties cells below five companies and holds no identifiers | #14 |
+| The summary's maturity cut gives the quartiles | #14 |
+| A lone blank cell gets a partner, so it cannot be worked out from the total | #14 |
+| A cell one company dominates is blanked | #14 |
+| Extra panel columns are read only when asked for | #14 |
 | With a zero Sharpe ratio the pricing-measure default probability equals the historical one: PD 1%, R = 40%, T = 1 gives 60.2 bp | #15 |
 | PD_P = N(-2), lambda = 0.5, T = 4, R = 40% gives PD_Q = N(-1) = 15.87% and 250.1 bp | #15 |
 | The default rate halfway between two published horizons is the average of the two, a maturity before the first is interpolated from zero, and one past the table is refused | #15 |

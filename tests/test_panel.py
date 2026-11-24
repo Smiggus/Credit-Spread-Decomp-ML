@@ -71,6 +71,13 @@ def test_missing_panel_file_is_named(tmp_path):
         load_panel(path=tmp_path / "nowhere.parquet")
 
 
+def test_extra_columns_are_read_only_when_asked(tmp_path):
+    path = write_panel(tmp_path, synthetic_panel().assign(ust_yield_at_maturity_pct=4.0))
+    assert "ust_yield_at_maturity_pct" not in load_panel(path=path)
+    df = load_panel(path=path, extra_columns=["ust_yield_at_maturity_pct"])
+    assert (df["ust_yield_at_maturity_pct"] == 4.0).all()
+
+
 def test_missing_column_fails_the_read(tmp_path):
     path = write_panel(tmp_path, synthetic_panel().drop(columns=["naive_dd"]))
     with pytest.raises(Exception, match="naive_dd"):
