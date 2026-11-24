@@ -34,7 +34,8 @@ def fake_builder(monkeypatch):
 
 def settings(remote=None, package=None):
     """Settings with only the Spark values that matter here."""
-    return Settings(panel_path=None, spark_master="local[2]", spark_remote=remote, graphframes_package=package)
+    return Settings(panel_path=None, spark_master="local[2]", spark_remote=remote, graphframes_package=package,
+                    trace_dir=None, liquidity_path=None)
 
 
 def test_remote_connects_with_name_timezone_and_time_type(builder):

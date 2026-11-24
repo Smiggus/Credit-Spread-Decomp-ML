@@ -21,6 +21,7 @@ KEY = ["cusip_id", "month"]
 DAY = ["cusip_id", "month", "trd_exctn_dt"]
 ORDER = ["trd_seq", "msg_seq"]
 SCALED = ["amihud", "amihud_risk", "irc", "irc_risk"]  # the four measures lambda adds up
+MIN_BONDS = 5  # fewest bonds behind a published percentile
 
 
 def _before_snapshot(trades: DataFrame, snapshots: dict[str, dt.date]) -> DataFrame:
@@ -126,8 +127,9 @@ def snapshot_days(panel: pd.DataFrame) -> dict[str, dt.date]:
 def join_measures(panel: pd.DataFrame, measures: pd.DataFrame) -> pd.DataFrame:
     """The panel with the measures added on bond and month. Keeps every panel row and its index.
 
-    A bond with no trades before the snapshot day has no measures row: in a month the measures
-    cover, its zero-trade share is 1; in a month they do not cover, every measure stays empty.
+    A bond with no trades before the snapshot day has no measures row. In a month the measures
+    cover (any month with at least one measures row) its zero-trade share is 1; in a month they do
+    not cover, every measure stays empty.
     Raises ValueError if a bond has two measures rows in one month.
     """
     month = _months(panel["snapshot_date"])
@@ -147,11 +149,13 @@ def with_measures(config: dict[str, Any]) -> dict[str, Any]:
 
 def measure_summary(joined: pd.DataFrame, measures: list[str], stratum: str) -> pd.DataFrame:
     """For each measure, by stratum and month: the bonds with a value and the 25th, 50th and 75th
-    percentiles. Totals only, no identifiers."""
+    percentiles. Totals only, no identifiers: with fewer than ``MIN_BONDS`` bonds the percentiles
+    stay empty, since they would show single bonds' values."""
     long = joined.assign(month=_months(joined["snapshot_date"])).melt(
         id_vars=[stratum, "month"], value_vars=measures, var_name="measure"
     )
     stats = long.groupby(["measure", stratum, "month"], observed=True)["value"].describe()
     names = {"count": "bonds", "25%": "p25", "50%": "p50", "75%": "p75"}
-    stats = stats[list(names)].rename(columns=names).reset_index()
-    return stats.astype({"bonds": int})
+    stats = stats[list(names)].rename(columns=names).reset_index().astype({"bonds": int})
+    stats.loc[stats["bonds"] < MIN_BONDS, ["p25", "p50", "p75"]] = None
+    return stats

@@ -16,7 +16,7 @@ import pandas as pd
 from pyspark.sql import DataFrame, SparkSession
 
 from src.config import REPO_ROOT, ensure_outside_repo, load_config, load_settings, require
-from src.liquidity import add_lambda, monthly_measures, snapshot_days
+from src.liquidity import KEY, add_lambda, monthly_measures, snapshot_days
 from src.panel import load_panel
 from src.spark import get_spark
 from src.trace import clean_trades, cleaning_counts, plain_trades, read_trades
@@ -36,7 +36,7 @@ def cleaned_trades(
         counts[table] = cleaning_counts(reports)
         logger.info("%s cleaning counts: %s", table, counts[table])
         trades.append(plain_trades(clean_trades(reports)))
-    return reduce(DataFrame.unionByName, trades), counts
+    return reduce(lambda first, second: first.unionByName(second), trades), counts
 
 
 def main() -> None:
@@ -49,10 +49,10 @@ def main() -> None:
     spark = get_spark(settings, config)
 
     trades, counts = cleaned_trades(spark, require(settings.trace_dir, "TRACE_DIR"), sorted(snapshots), config)
-    # Market trading days come from every bond's trades; the panel's bonds are kept after that, so
-    # lambda's scale comes from the panel's bonds in the train months.
-    bonds = spark.createDataFrame(pd.DataFrame({"cusip_id": panel["cusip_id"].unique()}))
-    measures = monthly_measures(trades, snapshots).join(bonds, "cusip_id")
+    # Market trading days come from every bond's trades. Only the panel's bond-months are kept after
+    # that, so lambda's scale comes from panel rows in the train months.
+    rows = panel[["cusip_id"]].assign(month=panel["snapshot_date"].dt.strftime("%Y-%m")).drop_duplicates()
+    measures = monthly_measures(trades, snapshots).join(spark.createDataFrame(rows), KEY)
     train_months = sorted(snapshot_days(panel[panel["partition"] == "train"]))
     table = add_lambda(measures, train_months).toPandas()
 

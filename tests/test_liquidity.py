@@ -230,13 +230,14 @@ def measures_table(rows):
 def test_join_keeps_every_panel_row_and_its_index():
     from src.liquidity import join_measures
 
-    panel = synthetic_panel(24).set_index(pd.RangeIndex(100, 124))
-    first = panel.iloc[0]
-    joined = join_measures(panel, measures_table([(first["cusip_id"], "2024-01", 0.25, 0.5)]))
+    panel = synthetic_panel(24)
+    panel = pd.concat([panel, panel.iloc[[0]].assign(cusip_id="C9")]).set_index(pd.RangeIndex(100, 125))
+    measures = measures_table([("C0", "2024-01", 0.25, 0.5), ("C9", "2024-01", 0.75, 0.9)])  # two bonds, one month
+    joined = join_measures(panel, measures)
     assert joined.index.equals(panel.index)
     assert list(joined.columns) == list(panel.columns) + ["zero_trade_share", "amihud"]
-    assert joined["amihud"].notna().sum() == 1
-    assert joined.iloc[0]["zero_trade_share"] == 0.25
+    assert joined["amihud"].notna().sum() == 2
+    assert joined.loc[[100, 124], "amihud"].tolist() == [0.5, 0.9]
 
 
 def test_a_bond_with_no_trades_gets_zero_trade_share_one_in_covered_months_only():
@@ -284,10 +285,11 @@ def test_measures_join_the_liquidity_group_in_a_copy_of_the_config():
 def test_summary_counts_bonds_with_a_value_and_gives_quartiles():
     from src.liquidity import measure_summary
 
-    joined = pd.DataFrame({"snapshot_date": pd.to_datetime(["2024-01-31"] * 5), "grade_bucket": ["IG"] * 4 + ["HY"],
-                           "amihud": [1.0, 2.0, 3.0, None, 7.0]})
+    joined = pd.DataFrame({"snapshot_date": pd.to_datetime(["2024-01-31"] * 7), "grade_bucket": ["IG"] * 6 + ["HY"],
+                           "amihud": [1.0, 2.0, 3.0, 4.0, 5.0, None, 7.0]})
     summary = measure_summary(joined, ["amihud"], "grade_bucket")
     assert list(summary.columns) == ["measure", "grade_bucket", "month", "bonds", "p25", "p50", "p75"]
     by_grade = summary.set_index("grade_bucket")
-    assert by_grade.loc["IG", ["bonds", "p25", "p50", "p75"]].tolist() == [3, 1.5, 2.0, 2.5]
+    assert by_grade.loc["IG", ["bonds", "p25", "p50", "p75"]].tolist() == [5, 2.0, 3.0, 4.0]
     assert by_grade.loc["HY", "bonds"] == 1
+    assert by_grade.loc["HY", ["p25", "p50", "p75"]].isna().all()  # one bond's value is not published

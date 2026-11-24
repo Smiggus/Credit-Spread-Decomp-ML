@@ -85,6 +85,8 @@ def test_an_input_added_in_the_config_lands_in_its_group():
     model = fit_spread_model(train, config=config)
     assert "amihud" in model.feature_names
     assert group_contributions(model, valid, config)["liquidity"].abs().mean() > 40
+    with pytest.raises(ValueError, match="differ from the config"):
+        group_contributions(model, valid)  # the default config does not list amihud
 
 
 def test_a_categorical_input_lands_in_its_group():

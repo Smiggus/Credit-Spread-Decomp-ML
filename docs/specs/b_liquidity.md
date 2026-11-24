@@ -9,7 +9,7 @@ In stage a the five liquidity inputs (trade counts and volume on the snapshot da
 ## The result this stage must produce
 
 1. **Monthly liquidity measures per bond**, from cleaned trade-level TRACE Enhanced, for the panel's bonds in its train, gap and valid months (January 2024 to November 2025), kept outside the repo with the other licensed data. The test months (to March 2026) follow with the pricer (stage f), which opens them. The cleaning counts go to `reports/b_cleaning_counts.csv`.
-2. **`reports/b_liquidity_summary.csv`**: for each measure, by IG and HY and by month, the number of bonds with a value and the 25th, 50th and 75th percentiles. Totals only.
+2. **`reports/b_liquidity_summary.csv`**: for each measure, by IG and HY and by month, the number of bonds with a value and the 25th, 50th and 75th percentiles, left empty below 5 bonds so no single bond's value shows. Totals only.
 3. **Stage a rerun with the new measures** in the liquidity group: `reports/b_group_shares.csv` and `reports/b_drop_group.csv`, and a README table of liquidity's share and drop-group rise before and after.
 
 The stage is done when the three exist, every stage b test passes with none skipped, and the README has a results section. Extending the measures back to 2002 (#13) comes after the results and does not block them.
@@ -81,7 +81,7 @@ The reader gathers each month's manifest and Spark's own row count of the month'
 | `liquidity.snapshot_days(panel)` | Month to the panel's snapshot day; refuses a month with two | #12 |
 | `liquidity.join_measures(panel, measures)` | Adds the measures to the panel on bond and month, keeping every row and the index; a bond with no trades in a covered month gets a zero-trade share of 1; refuses two measures rows for one bond and month | #12 |
 | `liquidity.with_measures(config)` | A copy of the config with the measures added to the liquidity group | #12 |
-| `liquidity.measure_summary(joined, measures, stratum)` | Bonds with a value and quartiles per measure, stratum and month | #12 |
+| `liquidity.measure_summary(joined, measures, stratum)` | Bonds with a value and quartiles per measure, stratum and month; quartiles stay empty below 5 bonds | #12 |
 
 ## Acceptance tests (`tests/test_trace.py`, `tests/test_liquidity.py`)
 
