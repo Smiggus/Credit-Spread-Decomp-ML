@@ -23,7 +23,7 @@ def measures_of(spark, rows, months=None):
     """Monthly measures for made-up trades, as a dict per bond."""
     from src.liquidity import monthly_measures
 
-    table = monthly_measures(spark.createDataFrame(rows), months or T.SNAPSHOTS).toPandas()
+    table = monthly_measures(T.frame(spark, rows), months or T.SNAPSHOTS).toPandas()
     return table.set_index("cusip_id").to_dict("index")
 
 
@@ -86,27 +86,57 @@ def test_reader_refuses_a_local_path_inside_the_repo():
         read_trades(None, str(REPO_ROOT / "data" / "trace"), "trace_enhanced", ["2025-03"])
 
 
-@pytest.mark.skip(reason="waits for #10")
-def test_cancelled_trade_and_its_original_are_removed(spark):
+def kept_messages(spark, rows):
+    """Message numbers of the trades that survive cleaning, in order."""
     from src.trace import clean_trades
 
-    kept = clean_trades(spark.createDataFrame(T.CANCELLED)).toPandas()
-    assert kept["msg_seq"].tolist() == [12]
+    return sorted(int(m) for m in clean_trades(T.reports(spark, rows)).toPandas()["msg_seq_nb"])
 
 
-@pytest.mark.skip(reason="waits for #10")
-def test_correction_replaces_the_original(spark):
+def test_a_cancel_reported_days_later_removes_its_trade(spark):
+    assert kept_messages(spark, T.CANCELLED_LATER) == [11, 12]
+
+
+def test_a_correction_replaces_the_old_version(spark):
     from src.trace import clean_trades
 
-    kept = clean_trades(spark.createDataFrame(T.CORRECTED)).toPandas()
+    kept = clean_trades(T.reports(spark, T.CORRECTED)).toPandas()
     assert kept["rptd_pr"].tolist() == [100.5]
 
 
-@pytest.mark.skip(reason="waits for #10")
-def test_interdealer_trade_is_counted_once(spark):
+def test_a_reversal_removes_only_the_trade_it_points_to(spark):
+    assert kept_messages(spark, T.REVERSED_TWIN) == [41]
+
+
+def test_interdealer_buy_dropped_only_when_a_matching_dealer_sell_exists(spark):
+    assert kept_messages(spark, T.INTERDEALER) == [30, 32, 34]
+
+
+def test_special_and_late_settling_trades_are_dropped(spark):
+    assert kept_messages(spark, T.SPECIAL) == [60, 66]
+
+
+def test_reports_from_before_2012_are_refused(spark):
     from src.trace import clean_trades
 
-    assert clean_trades(spark.createDataFrame(T.INTERDEALER)).count() == 1
+    with pytest.raises(ValueError, match="2012"):
+        clean_trades(T.reports(spark, T.OLD_PLATFORM))
+
+
+def test_cleaning_counts_each_step(spark):
+    from src.trace import cleaning_counts
+
+    rows = T.CANCELLED_LATER + T.CORRECTED + T.REVERSED_TWIN + T.INTERDEALER + T.SPECIAL
+    counts = cleaning_counts(T.reports(spark, rows))
+    assert counts == {"start": 23, "not_a_trade_report": 4, "cancelled": 2, "reversed": 1,
+                      "interdealer": 2, "special_or_late": 5, "end": 9}
+
+
+def test_plain_trades_renames_for_the_measures(spark):
+    from src.trace import clean_trades, plain_trades
+
+    plain = plain_trades(clean_trades(T.reports(spark, T.SPECIAL)))
+    assert plain.columns == ["cusip_id", "trd_exctn_dt", "trd_seq", "rptd_pr", "par_usd", "contra", "side"]
 
 
 @pytest.mark.skip(reason="waits for #11")

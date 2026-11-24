@@ -23,10 +23,16 @@ jobs:
       - name: flake8
         run: pipx run flake8 src tests scripts
 
+      # The Spark tests run on a local Spark here (no SPARK_REMOTE), which needs Java 17 or 21.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       # Only what the tests and checks import. The full environment is environment.yml.
       - name: install dependencies
         run: >
-          pip install pyyaml python-dotenv numpy "pandas<3" pyarrow "pyspark-client==4.2.0" "graphframes-py==0.12.3" "xgboost>=3.1" matplotlib
+          pip install pyyaml python-dotenv numpy "pandas<3" pyarrow "pyspark==4.2.0" "graphframes-py==0.12.3" "xgboost>=3.1" matplotlib
           pytest pytest-cov pylint isort radon
 
       - name: isort

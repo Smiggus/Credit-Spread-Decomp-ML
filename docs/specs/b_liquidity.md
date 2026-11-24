@@ -33,7 +33,17 @@ The earlier plan also listed a bid-ask spread from matched customer buys and sel
 
 ## Cleaning (#10)
 
-The cleaning works on plain status names (trade, cancel, correction, reversal), mapped from the WRDS codes in one small function, so the logic and its tests do not depend on the codes. Follow Dick-Nielsen's filter for Enhanced TRACE: remove cancelled trades and the trades they cancel, replace corrected trades with their corrections, remove reversals and the trades they reverse, and keep one side of each interdealer trade so it is not counted twice. The exact WRDS field codes are checked against the WRDS TRACE manual in #10 and listed in this spec then. The cleaning reports how many trades each step removes, as totals.
+Dick-Nielsen's filter for Enhanced TRACE, as ported in Tidy Finance's `clean_enhanced_trace`, on the WRDS columns. TRACE moved to a new platform on 6 February 2012 and changed its status codes (`trc_st`; FINRA's post-2012 file layout: T trade report, X trade cancel, C cancelled correction, R new correction, Y reversal). The window here is entirely after that date, so only those rules are built now; reports from before it are refused until #13 adds the older rules.
+
+| Step | Rule |
+|---|---|
+| Trade reports | Keep T and R reports with a report date. R is the corrected version of a trade. |
+| Cancels | An X or C report carries the same `msg_seq_nb` and trade details as the report it removes. Remove the trade matching on `msg_seq_nb` and the details: bond, volume, price, side, counterparty, execution date and time. No report date is used, so a cancel reported days later still finds its trade. |
+| Reversals | A Y report's `orig_msg_seq_nb` is the `msg_seq_nb` of the trade it removes; match on that and the same details. Only that trade goes, even if an identical trade exists. |
+| Interdealer trades | Both dealers report the trade. Keep customer trades, dealer sells, and dealer buys that no dealer sell matches on bond, execution date, volume and price. A report with no counterparty code goes. |
+| Special and late | Keep only `wis_fl = N` (not when-issued), no special trade flag, no as-of flag, and settlement at most 7 days after execution. |
+
+Empty values match each other in the joins, as in the reference code. The cleaning reports how many reports each step removes, as totals.
 
 ## Where things run
 
@@ -61,8 +71,9 @@ The reader gathers each month's manifest and Spark's own row count of the month'
 |---|---|---|
 | `trace.check_delivery(manifests, counts, months, required)` | Plain check, no Spark or files: every month present, row counts match the manifests, required columns listed in the manifests | #9 |
 | `trace.read_trades(spark, trace_dir, table, months)` | Gathers manifests and row counts on the cluster, runs `check_delivery`, returns those months as a Spark DataFrame. Refuses a local `trace_dir` inside the repo | #9 |
-| `trace.clean_trades(trades)` | Spark DataFrame in, cleaned trades out | #10 |
-| `trace.cleaning_counts(trades)` | Trades removed by each cleaning step, as totals | #10 |
+| `trace.clean_trades(reports)` | WRDS reports in, cleaned trades out; refuses reports from before 6 February 2012 | #10 |
+| `trace.cleaning_counts(reports)` | Reports removed by each cleaning step, as totals | #10 |
+| `trace.plain_trades(cleaned)` | Renames the columns the measures use (price, par volume, side, counterparty) | #10 |
 | `liquidity.daily_measures(trades, snapshot_days)` | Daily Amihud and IRC per bond, trades before the snapshot day only | #11 |
 | `liquidity.monthly_measures(trades, snapshot_days)` | Every measure above per bond and month, except lambda | #11 |
 | `liquidity.add_lambda(measures, train_months)` | Standardises on the train months and adds lambda | #11 |
@@ -77,9 +88,13 @@ Written before the code, on small made-up trade sets with hand-computed answers 
 | The check accepts a complete delivery | #9 |
 | The check names a missing month, a month whose row count differs from its manifest, and a missing column | #9 |
 | The reader refuses a local path inside the repo | #9 |
-| A cancelled trade and the trade it cancels are both removed | #10 |
-| A corrected trade replaces the original | #10 |
-| An interdealer trade reported by both dealers is counted once | #10 |
+| A cancel reported two days later removes its trade and not an identical twin | #10 |
+| A correction replaces the old version | #10 |
+| A reversal removes only the trade it points to, not an identical twin | #10 |
+| A dealer buy is dropped only when a matching dealer sell exists (a matching customer sell does not count); a report with no counterparty goes | #10 |
+| When-issued, special, as-of and late-settling trades are dropped, by day count and by settlement date | #10 |
+| Reports from before 2012 are refused | #10 |
+| Each step's removals are counted | #10 |
 | Amihud on a hand-computed day | #11 |
 | IRC: two same-size trades at 100 and 99 on one day give 0.01 | #11 |
 | Roll: prices bouncing 100, 101, 100, 101, 100 give 2 x sqrt(4/3); a trend with positive covariance gives 0 | #11 |
@@ -93,6 +108,7 @@ Written before the code, on small made-up trade sets with hand-computed answers 
 - Amihud (2002), "Illiquidity and stock returns: cross-section and time-series effects", *Journal of Financial Markets* 5, 31-56.
 - Bao, Pan and Wang (2011), "The illiquidity of corporate bonds", *Journal of Finance* 66(3), 911-946.
 - Dick-Nielsen, Feldhütter and Lando (2012), "Corporate bond liquidity before and after the onset of the subprime crisis", *Journal of Financial Economics* 103(3), 471-492.
-- Dick-Nielsen, notes on cleaning Enhanced TRACE data (2009, 2014), the basis of the WRDS cleaned TRACE data.
+- Dick-Nielsen, notes on cleaning Enhanced TRACE data (2009, 2014), the basis of the WRDS cleaned TRACE data; implemented following Tidy Finance's `clean_enhanced_trace`.
+- FINRA, TRACE historic data file layout for files after 6 February 2012 (status codes).
 - Feldhütter (2012), "The same bond at different prices: identifying search frictions and selling pressures", *Review of Financial Studies* 25(4), 1155-1206.
 - Roll (1984), "A simple implicit measure of the effective bid-ask spread in an efficient market", *Journal of Finance* 39(4), 1127-1139.
