@@ -59,12 +59,15 @@ def load_panel(
     partitions: str | Iterable[str] | None = None,
     path: Path | None = None,
     config: dict[str, Any] | None = None,
+    extra_columns: Iterable[str] = (),
 ) -> pd.DataFrame:
     """Read the panel's ids, target and inputs for the requested partitions.
 
     partitions: one name or several; default from ``config.yaml`` (train, gap and valid).
         The test months are read only when asked for.
     path: default ``PANEL_PATH`` from ``.env``. It must lie outside the repo.
+    extra_columns: panel columns that are not model inputs but a stage needs, such as the
+        Treasury yield at each bond's maturity for the Merton spread.
     The file is checked against its manifest first. A missing column fails in the read.
     """
     cfg = panel_config(config)
@@ -78,7 +81,7 @@ def load_panel(
     parquet = ensure_outside_repo(path or require(load_settings().panel_path, "PANEL_PATH"), "panel file")
     check_manifest(parquet, cfg["manifest_name"])
 
-    columns = list(cfg["id_columns"]) + [cfg["target"]] + feature_columns(config)
+    columns = list(cfg["id_columns"]) + [cfg["target"]] + feature_columns(config) + list(extra_columns)
     df = pd.read_parquet(parquet, columns=columns, filters=[("partition", "in", parts)])
     df["snapshot_date"] = pd.to_datetime(df["snapshot_date"])
     return df
